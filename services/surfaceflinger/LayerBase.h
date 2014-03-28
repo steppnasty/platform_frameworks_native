@@ -43,8 +43,8 @@ namespace android {
 
 // ---------------------------------------------------------------------------
 
-class Client;
 class DisplayHardware;
+class Client;
 class GraphicBuffer;
 class GraphicPlane;
 class Layer;

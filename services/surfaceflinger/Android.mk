@@ -2,7 +2,6 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
-    Client.cpp                              \
     Layer.cpp                               \
     LayerBase.cpp             	            \
     LayerDim.cpp                            \
