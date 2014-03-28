@@ -57,7 +57,7 @@
 #include "DisplayHardware/DisplayHardware.h"
 #include "DisplayHardware/HWComposer.h"
 
-#include <private/surfaceflinger/SharedBufferStack.h>
+#include <private/gui/SharedBufferStack.h>
 #ifdef QCOM_HARDWARE
 #include <qcom_ui.h>
 #endif

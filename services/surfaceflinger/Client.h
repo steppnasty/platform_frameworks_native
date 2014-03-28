@@ -24,7 +24,7 @@
 #include <utils/KeyedVector.h>
 #include <utils/Mutex.h>
 
-#include <surfaceflinger/ISurfaceComposerClient.h>
+#include <gui/ISurfaceComposerClient.h>
 
 namespace android {
 

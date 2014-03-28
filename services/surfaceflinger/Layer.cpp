@@ -29,7 +29,7 @@
 #include <ui/GraphicBuffer.h>
 #include <ui/PixelFormat.h>
 
-#include <surfaceflinger/Surface.h>
+#include <gui/Surface.h>
 
 #include "clz.h"
 #include "DisplayHardware/DisplayHardware.h"
