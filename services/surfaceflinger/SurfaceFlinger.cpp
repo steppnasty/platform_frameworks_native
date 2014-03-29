@@ -57,7 +57,7 @@
 #include "DisplayHardware/HWComposer.h"
 
 #include <private/gui/SharedBufferStack.h>
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 #include <qcom_ui.h>
 #endif
 
@@ -101,11 +101,8 @@ SurfaceFlinger::SurfaceFlinger()
         mLastTransactionTime(0),
         mBootFinished(false),
         mConsoleSignals(0),
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         mCanSkipComposition(false),
-#endif
-#ifdef QCOM_HDMI_OUT
-        mExtDispOutput(EXT_TYPE_NONE),
 #endif
         mSecureFrameBuffer(0)
 {
@@ -449,7 +446,7 @@ bool SurfaceFlinger::threadLoop()
 
         logger.log(GraphicLog::SF_REPAINT, index);
         handleRepaint();
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         if (!mCanSkipComposition) {
             // inform the h/w that we're done compositing
             logger.log(GraphicLog::SF_COMPOSITION_COMPLETE, index);
@@ -476,7 +473,7 @@ bool SurfaceFlinger::threadLoop()
         hw.compositionComplete();
         usleep(16667); // 60 fps period
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         //If the draw is skipped by any chance, we need to force
         //composition atleast once.
         HWComposer& hwc(hw.getHwComposer());
@@ -519,17 +516,11 @@ void SurfaceFlinger::handleConsoleEvents()
     int what = android_atomic_and(0, &mConsoleSignals);
     if (what & eConsoleAcquired) {
         hw.acquireScreen();
-#ifdef QCOM_HDMI_OUT
-        updateHwcExternalDisplay(mExtDispOutput);
-#endif
     }
 
     if (what & eConsoleReleased) {
         if (hw.isScreenAcquired()) {
             hw.releaseScreen();
-#ifdef QCOM_HDMI_OUT
-            updateHwcExternalDisplay(false);
-#endif
         }
     }
 
@@ -715,7 +706,7 @@ void SurfaceFlinger::computeVisibleRegions(
             // as well, as the old visible region
             dirty.orSelf(layer->visibleRegionScreen);
             layer->contentDirty = false;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
             layer->setIsUpdating(true);
 #endif
         } else {
@@ -907,7 +898,7 @@ void SurfaceFlinger::handleRepaint()
     }
 
     setupHardwareComposer(mDirtyRegion);
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     if (!mCanSkipComposition)
         composeSurfaces(mDirtyRegion);
 #else
@@ -919,7 +910,7 @@ void SurfaceFlinger::handleRepaint()
     mDirtyRegion.clear();
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 bool SurfaceFlinger::isGPULayerPresent()
 {
     bool isGPULayerPresent = false;
@@ -975,7 +966,7 @@ void SurfaceFlinger::setupHardwareComposer(Region& dirtyInOut)
     status_t err = hwc.prepare();
     ALOGE_IF(err, "HWComposer::prepare failed (%s)", strerror(-err));
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     mCanSkipComposition = (hwc.getFlags() & HWC_SKIP_COMPOSITION) ? true : false;
 #endif
     if (err == NO_ERROR) {
@@ -1022,7 +1013,6 @@ void SurfaceFlinger::setupHardwareComposer(Region& dirtyInOut)
                     dirtyInOut.orSelf(layer->visibleRegionScreen);
                 }
                 layer->setOverlay(isOverlay);
-                layer->mQCLayer->setS3DComposeFormat(cur[i].hints);
             }
             // don't erase stuff outside the dirty region
             transparent.andSelf(dirtyInOut);
@@ -1031,7 +1021,7 @@ void SurfaceFlinger::setupHardwareComposer(Region& dirtyInOut)
         /*
          *  clear the area of the FB that need to be transparent
          */
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         if (!transparent.isEmpty() && !mCanSkipComposition) {
             // If we have any GPU layers present, don't use libQcomUI's
             // clearRegion
@@ -1067,7 +1057,7 @@ void SurfaceFlinger::composeSurfaces(const Region& dirty)
     if (UNLIKELY(fbLayerCount && !mWormholeRegion.isEmpty())) {
         // should never happen unless the window manager has a bug
         // draw something...
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         if (false == isGPULayerPresent()) {
             // Use libQcomUI to draw the wormhole since there are no GPU layers
             const Region region(mWormholeRegion.intersect(mDirtyRegion));
@@ -1384,34 +1374,6 @@ int SurfaceFlinger::setOrientation(DisplayID dpy,
     }
     return orientation;
 }
-
-#ifdef QCOM_HDMI_OUT
-void SurfaceFlinger::updateHwcExternalDisplay(int externaltype)
-{
-    invalidateHwcGeometry();
-    const DisplayHardware& hw(graphicPlane(0).displayHardware());
-    HWComposer& hwc(hw.getHwComposer());
-    hwc.perform(EVENT_EXTERNAL_DISPLAY, externaltype);
-}
-
-/*
- * Handles the externalDisplay event
- * @param: disp_type - external display type(HDMI/WFD)
- * @param: value     - value(on/off)
- * */
-void SurfaceFlinger::enableExternalDisplay(int disp_type, int value)
-{
-    Mutex::Autolock _l(mExtDispLock);
-    external_display_type newType = handleEventHDMI(
-                                      (external_display_type) disp_type, value,
-                                      (external_display_type) mExtDispOutput);
-    if(newType != mExtDispOutput) {
-        mExtDispOutput = (int) newType;
-        updateHwcExternalDisplay(mExtDispOutput);
-        signalEvent();
-    }
-}
-#endif
 
 status_t SurfaceFlinger::removeSurface(const sp<Client>& client, SurfaceID sid)
 {
@@ -2299,7 +2261,7 @@ status_t Client::destroySurface(SurfaceID sid) {
 
 // ---------------------------------------------------------------------------
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 GraphicBufferAlloc::GraphicBufferAlloc() {
     mFreedIndex = -1;
     mSize = 0;
@@ -2324,7 +2286,7 @@ sp<GraphicBuffer> GraphicBufferAlloc::createGraphicBuffer(uint32_t w, uint32_t h
                 w, h, strerror(-err), graphicBuffer->handle);
         return 0;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     checkBuffer((native_handle_t *)graphicBuffer->handle, mSize, usage);
     Mutex::Autolock _l(mLock);
     if (-1 != mFreedIndex) {
@@ -2337,7 +2299,7 @@ sp<GraphicBuffer> GraphicBufferAlloc::createGraphicBuffer(uint32_t w, uint32_t h
     return graphicBuffer;
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 void GraphicBufferAlloc::freeAllGraphicBuffersExcept(int bufIdx) {
     Mutex::Autolock _l(mLock);
     if (0 <= bufIdx && bufIdx < mBuffers.size()) {

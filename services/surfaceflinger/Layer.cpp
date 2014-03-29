@@ -39,7 +39,7 @@
 #include "SurfaceFlinger.h"
 #include "SurfaceTextureLayer.h"
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 #include <qcom_ui.h>
 #endif
 
@@ -63,14 +63,14 @@ Layer::Layer(SurfaceFlinger* flinger,
         mOpaqueLayer(true),
         mNeedsDithering(false),
         mSecure(false),
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         mLayerQcomFlags(0),
 #endif
         mProtectedByApp(false)
 {
     mCurrentCrop.makeInvalid();
     glGenTextures(1, &mTextureName);
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     updateLayerQcomFlags(LAYER_UPDATE_STATUS, true, mLayerQcomFlags);
 #endif
 }
@@ -196,7 +196,7 @@ void Layer::setGeometry(hwc_layer_t* hwcl)
 
     hwcl->flags &= ~HWC_SKIP_LAYER;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
     // we can't do alpha-fade with the hwc HAL. C2D composition
     // can handle fade cases
@@ -275,7 +275,7 @@ void Layer::setPerFrameData(hwc_layer_t* hwcl) {
     } else {
         hwcl->handle = buffer->handle;
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     updateLayerQcomFlags(LAYER_ASYNCHRONOUS_STATUS, !mSurfaceTexture->isSynchronousMode(), mLayerQcomFlags);
     hwcl->flags = getPerFrameFlags(hwcl->flags, mLayerQcomFlags);
 #endif
@@ -311,7 +311,7 @@ void Layer::onDraw(const Region& clip) const
         return;
     }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 	if (!isGPUSupportedFormat(mActiveBuffer->format)) {
 	    clearWithOpenGL(clip, 0, 0, 0, 1);
         return;
@@ -345,11 +345,7 @@ void Layer::onDraw(const Region& clip) const
         glEnable(GL_DITHER);
     }
 
-    int composeS3DFormat = mQCLayer->needsS3DCompose();
-    if (composeS3DFormat)
-        drawS3DUIWithOpenGL(clip);
-    else
-        drawWithOpenGL(clip);
+    drawWithOpenGL(clip);
     glDisable(GL_TEXTURE_EXTERNAL_OES);
     glDisable(GL_TEXTURE_2D);
     if(needsDithering()) {
@@ -396,7 +392,7 @@ bool Layer::isProtected() const
             (activeBuffer->getUsage() & GRALLOC_USAGE_PROTECTED);
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 void Layer::setIsUpdating(bool isUpdating)
 {
     updateLayerQcomFlags(LAYER_UPDATE_STATUS, isUpdating, mLayerQcomFlags);
@@ -468,7 +464,7 @@ void Layer::lockPageFlip(bool& recomputeVisibleRegions)
             recomputeVisibleRegions = true;
             return;
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         updateLayerQcomFlags(LAYER_UPDATE_STATUS, true, mLayerQcomFlags);
 #endif
         // update the active buffer
@@ -563,7 +559,7 @@ void Layer::lockPageFlip(bool& recomputeVisibleRegions)
                     bufWidth, bufHeight, mCurrentTransform,
                     front.requested_w, front.requested_h);
         }
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     } else {
         updateLayerQcomFlags(LAYER_UPDATE_STATUS, false, mLayerQcomFlags);
 #endif

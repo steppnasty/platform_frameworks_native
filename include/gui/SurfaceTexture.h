@@ -113,7 +113,7 @@ public:
 
     virtual int query(int what, int* value);
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     virtual int performQcomOperation(int operation, int arg1, int arg2, int arg3);
 #endif
 
@@ -520,7 +520,7 @@ private:
     // with the surface Texture.
     uint64_t mFrameCounter;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     // s3dFormat is the S3D format specified by the client.
     int mS3DFormat;
 

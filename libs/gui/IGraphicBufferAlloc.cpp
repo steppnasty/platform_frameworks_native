@@ -32,7 +32,7 @@ namespace android {
 
 enum {
     CREATE_GRAPHIC_BUFFER = IBinder::FIRST_CALL_TRANSACTION,
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     FREE_ALL_GRAPHIC_BUFFERS_EXCEPT,
     FREE_GRAPHIC_BUFFER_AT_INDEX,
     SET_GRAPHIC_BUFFER_SIZE,
@@ -69,7 +69,7 @@ public:
         return graphicBuffer;
     }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     virtual void freeAllGraphicBuffersExcept(int bufIdx) {
         Parcel data, reply;
         data.writeInterfaceToken(
@@ -139,7 +139,7 @@ status_t BnGraphicBufferAlloc::onTransact(
             }
             return NO_ERROR;
         } break;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         case FREE_ALL_GRAPHIC_BUFFERS_EXCEPT: {
             CHECK_INTERFACE(IGraphicBufferAlloc, data, reply);
             int bufIdx = data.readInt32();

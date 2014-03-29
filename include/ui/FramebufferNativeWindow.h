@@ -30,7 +30,7 @@
 
 #include <ui/egl/android_natives.h>
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 #define NUM_FRAMEBUFFERS_MAX  3
 #else
 #define NUM_FRAME_BUFFERS  2
@@ -87,7 +87,7 @@ private:
     framebuffer_device_t* fbDev;
     alloc_device_t* grDev;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     sp<NativeBuffer> buffers[NUM_FRAMEBUFFERS_MAX];
 #else
     sp<NativeBuffer> buffers[NUM_FRAME_BUFFERS];

@@ -71,7 +71,7 @@ private:
     int dispatchSetUsage(va_list args);
     int dispatchLock(va_list args);
     int dispatchUnlockAndPost(va_list args);
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     int dispatchPerformQcomOperation(int operation, va_list args);
 #endif
 
@@ -96,7 +96,7 @@ protected:
     virtual int setUsage(uint32_t reqUsage);
     virtual int lock(ANativeWindow_Buffer* outBuffer, ARect* inOutDirtyBounds);
     virtual int unlockAndPost();
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     virtual int performQcomOperation(int operation, int arg1, int arg2, int arg3);
 #endif
 

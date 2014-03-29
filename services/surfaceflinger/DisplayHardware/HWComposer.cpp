@@ -34,7 +34,7 @@
 #include "HWComposer.h"
 #include "SurfaceFlinger.h"
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 #include <qcom_ui.h>
 #endif
 
@@ -103,7 +103,7 @@ status_t HWComposer::createWorkList(size_t numLayers) {
 }
 
 status_t HWComposer::prepare() const {
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     // Reset the Skip composition flag
     mList->flags &= ~HWC_SKIP_COMPOSITION;
 #endif
@@ -124,7 +124,7 @@ status_t HWComposer::prepare() const {
                 case HWC_FRAMEBUFFER:
                     numFBLayers++;
                     break;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
                 default:
                     if(isUpdatingFB((HWCCompositionType)l.compositionType))
                         numFBLayers++;
@@ -182,7 +182,7 @@ hwc_layer_t* HWComposer::getLayers() const {
     return mList ? mList->hwLayers : 0;
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 uint32_t HWComposer::getFlags() const {
     return mList ? mList->flags : 0;
 }
@@ -213,7 +213,7 @@ void HWComposer::dump(String8& result, char* buffer, size_t SIZE,
             snprintf(buffer, SIZE,
                     " %8s | %08x | %08x | %08x | %02x | %05x | %08x | [%5d,%5d,%5d,%5d] | [%5d,%5d,%5d,%5d] %s\n",
                     l.compositionType ? (l.compositionType == HWC_OVERLAY ? "OVERLAY" : "COPYBIT") : "FB",
-                    intptr_t(l.handle), l.hints, l.flags, l.transform & FINAL_TRANSFORM_MASK, l.blending, format,
+                    intptr_t(l.handle), l.hints, l.flags, l.transform, l.blending, format,
                     l.sourceCrop.left, l.sourceCrop.top, l.sourceCrop.right, l.sourceCrop.bottom,
                     l.displayFrame.left, l.displayFrame.top, l.displayFrame.right, l.displayFrame.bottom,
                     layer->getName().string());
@@ -226,7 +226,7 @@ void HWComposer::dump(String8& result, char* buffer, size_t SIZE,
     }
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 void HWComposer::perform(int event, int value) {
     if (mHwc) {
         mHwc->perform(mHwc, event, value);

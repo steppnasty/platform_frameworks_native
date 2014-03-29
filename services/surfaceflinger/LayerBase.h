@@ -37,7 +37,6 @@
 
 #include "DisplayHardware/DisplayHardware.h"
 #include "Transform.h"
-#include "qcom_ui.h"
 
 namespace android {
 
@@ -206,7 +205,7 @@ public:
      *  current list */
     virtual void onRemoved() { };
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     /** Called from surfaceFlinger to update the layer */
     virtual void setIsUpdating(bool isUpdating) { };
 #endif
@@ -227,7 +226,6 @@ public:
 
     int32_t  getOrientation() const { return mOrientation; }
     int32_t  getPlaneOrientation() const { return mPlaneOrientation; }
-    QCBaseLayer * mQCLayer;
     
 protected:
     const GraphicPlane& graphicPlane(int dpy) const;
@@ -237,7 +235,6 @@ protected:
                                GLclampf b, GLclampf alpha) const;
           void clearWithOpenGL(const Region& clip) const;
           void drawWithOpenGL(const Region& clip) const;
-          void drawS3DUIWithOpenGL(const Region& clip) const;
 
           void setFiltering(bool filtering);
           bool getFiltering() const;
@@ -297,7 +294,7 @@ class LayerBaseClient : public LayerBase
 {
 public:
             LayerBaseClient(SurfaceFlinger* flinger, DisplayID display,
-                    const sp<Client>& client);
+                        const sp<Client>& client);
 
             virtual ~LayerBaseClient();
 

@@ -47,7 +47,7 @@ ifeq ($(BOARD_USES_HTC_CAMERA),true)
 endif
 
 ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-    LOCAL_CFLAGS += -DQCOM_HARDWARE
+    LOCAL_CFLAGS += -DQCOMHW
 endif
 
 LOCAL_MODULE:= libui

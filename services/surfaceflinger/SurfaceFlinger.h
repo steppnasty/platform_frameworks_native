@@ -63,7 +63,7 @@ public:
     virtual ~GraphicBufferAlloc();
     virtual sp<GraphicBuffer> createGraphicBuffer(uint32_t w, uint32_t h,
         PixelFormat format, uint32_t usage, status_t* error);
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     virtual void freeAllGraphicBuffersExcept(int bufIdx);
     virtual void freeGraphicBufferAtIndex(int bufIdx);
     virtual void setGraphicBufferSize(int size);
@@ -187,11 +187,6 @@ public:
                                                             int orientation, uint32_t flags);
     virtual int                         setOrientation(DisplayID dpy, int orientation, uint32_t flags);
     virtual bool                        authenticateSurfaceTexture(const sp<ISurfaceTexture>& surface) const;
-
-#ifdef QCOM_HDMI_OUT
-    //HDMI Specific
-    virtual void                        enableExternalDisplay(int disp_type, int externaltype);
-#endif
 
     virtual status_t captureScreen(DisplayID dpy,
             sp<IMemoryHeap>* heap,
@@ -352,11 +347,7 @@ private:
             void        debugShowFPS() const;
             void        drawWormhole() const;
 
-#ifdef QCOM_HDMI_OUT
-            //HDMI Specific
-            void updateHwcExternalDisplay(int externaltype);
-#endif
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
             bool isGPULayerPresent();
 #endif
 
@@ -417,7 +408,7 @@ private:
                 Mutex                       mExtDispLock;
                 bool                        mOrientationChanged;
 #endif
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
                 bool                        mCanSkipComposition;
 #endif
 

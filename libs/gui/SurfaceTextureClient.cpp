@@ -23,7 +23,7 @@
 
 #include <utils/Log.h>
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 #include <qcom_ui.h>
 #endif
 
@@ -332,7 +332,7 @@ int SurfaceTextureClient::perform(int operation, va_list args)
         res = dispatchDisconnect(args);
         break;
     default:
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         res = dispatchPerformQcomOperation(operation, args);
 #else
 	res = NAME_NOT_FOUND;
@@ -342,7 +342,7 @@ int SurfaceTextureClient::perform(int operation, va_list args)
     return res;
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 int SurfaceTextureClient::dispatchPerformQcomOperation(int operation,
                                                        va_list args) {
     int num_args = getNumberOfArgsForOperation(operation);
@@ -443,7 +443,7 @@ int SurfaceTextureClient::dispatchUnlockAndPost(va_list args) {
     return unlockAndPost();
 }
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 int SurfaceTextureClient::performQcomOperation(int operation, int arg1,
                                                int arg2, int arg3) {
     LOGV("SurfaceTextureClient::performQcomOperation");
@@ -485,21 +485,7 @@ int SurfaceTextureClient::setUsage(uint32_t reqUsage)
 {
     ALOGV("SurfaceTextureClient::setUsage");
     Mutex::Autolock lock(mMutex);
-    if (reqUsage & GRALLOC_USAGE_EXTERNAL_ONLY) {
-        //Set explicitly, since reqUsage may have other values.
-        mReqExtUsage = GRALLOC_USAGE_EXTERNAL_ONLY;
-        //This flag is never independent. Always an add-on to
-        //GRALLOC_USAGE_EXTERNAL_ONLY
-        if(reqUsage & GRALLOC_USAGE_EXTERNAL_BLOCK) {
-            mReqExtUsage |= GRALLOC_USAGE_EXTERNAL_BLOCK;
-        }
-    }
-    // For most cases mReqExtUsage will be 0.
-    // reqUsage could come from app or driver. When it comes from app
-    // and subsequently from driver, the latter ends up overwriting
-    // the existing values. We cache certain values in mReqExtUsage
-    // to avoid being overwritten.
-    mReqUsage = reqUsage | mReqExtUsage;
+    mReqUsage = reqUsage;
     return OK;
 }
 

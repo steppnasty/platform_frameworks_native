@@ -398,9 +398,5 @@ status_t Surface::unlockAndPost() {
     return SurfaceTextureClient::unlockAndPost();
 }
 
-status_t Surface::setStereoscopic3DFormat(int format) {
-    return SurfaceTextureClient::performQcomOperation( NATIVE_WINDOW_SET_S3D_FORMAT, format, 0, 0);
-}
-
 // ----------------------------------------------------------------------------
 }; // namespace android

@@ -128,7 +128,7 @@ protected:
     // connected to the specified client API.
     virtual status_t disconnect(int api) = 0;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     // performQcomOperation performs Qcom specific operations. The actual
     // operation to be performed depends on the operation specified.
     //

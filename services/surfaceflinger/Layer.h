@@ -71,7 +71,7 @@ public:
     virtual bool needsDithering() const     { return mNeedsDithering; }
     virtual bool isSecure() const           { return mSecure; }
     virtual bool isProtected() const;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     virtual void setIsUpdating(bool isUpdating);
 #endif
     virtual void onRemoved();
