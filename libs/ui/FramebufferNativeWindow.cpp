@@ -97,7 +97,7 @@ FramebufferNativeWindow::FramebufferNativeWindow()
         mUpdateOnDemand = (fbDev->setUpdateRect != 0);
         
         // initialize the buffer FIFO
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
 	mNumBuffers = fbDev->numFramebuffers;
 	mNumFreeBuffers = mNumBuffers;
 	mBufferHead = 0;
@@ -150,7 +150,7 @@ FramebufferNativeWindow::FramebufferNativeWindow()
     ANativeWindow::queueBuffer = queueBuffer;
     ANativeWindow::query = query;
     ANativeWindow::perform = perform;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     ANativeWindow::cancelBuffer = NULL;
 #endif
 }
@@ -158,7 +158,7 @@ FramebufferNativeWindow::FramebufferNativeWindow()
 FramebufferNativeWindow::~FramebufferNativeWindow() 
 {
     if (grDev) {
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
        for(int i = 0; i < mNumBuffers; i++) {
             if (buffers[i] != NULL) {
                 grDev->free(grDev, buffers[i]->handle);
@@ -220,19 +220,19 @@ int FramebufferNativeWindow::getCurrentBufferIndex() const
 }
 
 int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window, 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         android_native_buffer_t** buffer)
 #else
         ANativeWindowBuffer** buffer)
 #endif
 {
     FramebufferNativeWindow* self = getSelf(window);
-#ifndef QCOM_HARDWARE
+#ifndef QCOMHW
     Mutex::Autolock _l(self->mutex);
 #endif
     framebuffer_device_t* fb = self->fbDev;
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     int index = self->mBufferHead;
 #else
     int index = self->mBufferHead++;
@@ -243,7 +243,7 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
     GraphicLog& logger(GraphicLog::getInstance());
     logger.log(GraphicLog::SF_FB_DEQUEUE_BEFORE, index);
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     /* The buffer is available, return it */
     Mutex::Autolock _l(self->mutex);
 
@@ -255,7 +255,7 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
 #endif
         self->mCondition.wait(self->mutex);
     }
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     self->mBufferHead++;
     if (self->mBufferHead >= self->mNumBuffers)
         self->mBufferHead = 0;
@@ -271,14 +271,14 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
 }
 
 int FramebufferNativeWindow::lockBuffer(ANativeWindow* window, 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         android_native_buffer_t* buffer)
 #else
         ANativeWindowBuffer* buffer)
 #endif
 {
     FramebufferNativeWindow* self = getSelf(window);
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     framebuffer_device_t* fb = self->fbDev;
     int index = -1;
 
@@ -294,7 +294,7 @@ int FramebufferNativeWindow::lockBuffer(ANativeWindow* window,
     GraphicLog& logger(GraphicLog::getInstance());
     logger.log(GraphicLog::SF_FB_LOCK_BEFORE, index);
 
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
     fb->lockBuffer(fb, index);
 #else
     // wait that the buffer we're locking is not front anymore
@@ -348,7 +348,7 @@ int FramebufferNativeWindow::query(const ANativeWindow* window,
         case NATIVE_WINDOW_CONCRETE_TYPE:
             *value = NATIVE_WINDOW_FRAMEBUFFER;
             return NO_ERROR;
-#ifdef QCOM_HARDWARE
+#ifdef QCOMHW
         case NATIVE_WINDOW_NUM_BUFFERS:
             *value = fb->numFramebuffers;
             return NO_ERROR;

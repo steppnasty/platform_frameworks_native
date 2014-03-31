@@ -32,6 +32,7 @@
 #include "GLExtensions.h"
 
 #include "DisplayHardware/DisplayHardwareBase.h"
+#include "DisplayHardware/VSyncBarrier.h"
 
 namespace android {
 
@@ -77,11 +78,9 @@ public:
     void        makeCurrent() const;
     uint32_t    getMaxTextureSize() const;
     uint32_t    getMaxViewportDims() const;
-#ifdef QCOM_HDMI_OUT
-    void        orientationChanged(int orientation) const;
-    void        setActionSafeWidthRatio(float asWidthRatio) const;
-    void        setActionSafeHeightRatio(float asHeightRatio) const;
-#endif
+
+    // waits for the next vsync and returns the timestamp of when it happened
+    nsecs_t         waitForVSync() const;
 
     uint32_t getPageFlipCount() const;
     EGLDisplay getEGLDisplay() const { return mDisplay; }
@@ -93,7 +92,7 @@ public:
 
     // Hardware Composer
     HWComposer& getHwComposer() const;
-    
+
     status_t compositionComplete() const;
     
     Rect getBounds() const {
@@ -107,6 +106,7 @@ public:
 private:
     void init(uint32_t displayIndex) __attribute__((noinline));
     void fini() __attribute__((noinline));
+    int32_t getDelayToNextVSyncUs(nsecs_t* timestamp) const;
 
     sp<SurfaceFlinger> mFlinger;
     EGLDisplay      mDisplay;
@@ -124,7 +124,13 @@ private:
     mutable uint32_t mPageFlipCount;
     GLint           mMaxViewportDims[2];
     GLint           mMaxTextureSize;
-    
+
+    VSyncBarrier    mVSync;
+
+    mutable Mutex   mFakeVSyncMutex;
+    mutable nsecs_t mNextFakeVSync;
+    nsecs_t         mRefreshPeriod;
+
     HWComposer*     mHwc;
 
     sp<FramebufferNativeWindow> mNativeWindow;

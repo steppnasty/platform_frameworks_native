@@ -34,6 +34,8 @@
 #include <binder/MemoryHeapBase.h>
 #include <binder/PermissionCache.h>
 
+#include <gui/IDisplayEventConnection.h>
+
 #include <utils/String8.h>
 #include <utils/String16.h>
 #include <utils/StopWatch.h>
@@ -46,6 +48,8 @@
 #include <GLES/gl.h>
 
 #include "clz.h"
+#include "DisplayEventConnection.h"
+#include "EventThread.h"
 #include "GLExtensions.h"
 #include "DdmConnection.h"
 #include "Layer.h"
@@ -300,11 +304,14 @@ status_t SurfaceFlinger::readyToRun()
     // put the origin in the left-bottom corner
     glOrthof(0, w, 0, h, 0, 1); // l=0, r=w ; b=0, t=h
 
-    mReadyToRunBarrier.open();
+    // start the EventThread
+    mEventThread = new EventThread(this);
 
     /*
      *  We're now ready to accept clients...
      */
+
+    mReadyToRunBarrier.open();
 
     // start boot animation
     property_set("ctl.start", "bootanim");
@@ -336,6 +343,24 @@ void SurfaceFlinger::waitForEvent()
 void SurfaceFlinger::signalEvent() {
     mEventQueue.invalidate();
 }
+
+status_t SurfaceFlinger::postMessageAsync(const sp<MessageBase>& msg,
+        nsecs_t reltime, uint32_t flags)
+{
+    return mEventQueue.postMessage(msg, reltime, flags);
+}
+
+status_t SurfaceFlinger::postMessageSync(const sp<MessageBase>& msg,
+        nsecs_t reltime, uint32_t flags)
+{
+    status_t res = mEventQueue.postMessage(msg, reltime, flags);
+    if (res == NO_ERROR) {
+        msg->wait();
+    }
+    return res;
+}
+
+// ----------------------------------------------------------------------------
 
 bool SurfaceFlinger::authenticateSurfaceTexture(
         const sp<ISurfaceTexture>& surfaceTexture) const {
@@ -378,20 +403,17 @@ bool SurfaceFlinger::authenticateSurfaceTexture(
     return false;
 }
 
-status_t SurfaceFlinger::postMessageAsync(const sp<MessageBase>& msg,
-        nsecs_t reltime, uint32_t flags)
-{
-    return mEventQueue.postMessage(msg, reltime, flags);
+// ----------------------------------------------------------------------------
+
+sp<IDisplayEventConnection> SurfaceFlinger::createDisplayEventConnection() {
+    sp<DisplayEventConnection> result(new DisplayEventConnection(this));
+    mEventThread->registerDisplayEventConnection(result);
+    return result;
 }
 
-status_t SurfaceFlinger::postMessageSync(const sp<MessageBase>& msg,
-        nsecs_t reltime, uint32_t flags)
-{
-    status_t res = mEventQueue.postMessage(msg, reltime, flags);
-    if (res == NO_ERROR) {
-        msg->wait();
-    }
-    return res;
+void SurfaceFlinger::cleanupDisplayEventConnection(
+        const wp<DisplayEventConnection>& connection) {
+    mEventThread->unregisterDisplayEventConnection(connection);
 }
 
 // ----------------------------------------------------------------------------
@@ -471,7 +493,7 @@ bool SurfaceFlinger::threadLoop()
     } else {
         // pretend we did the post
         hw.compositionComplete();
-        usleep(16667); // 60 fps period
+        hw.waitForVSync();
 
 #ifdef QCOMHW
         //If the draw is skipped by any chance, we need to force
@@ -1484,15 +1506,15 @@ sp<ISurface> SurfaceFlinger::createLayer(
     }
 
     //ALOGD("createLayer for (%d x %d), name=%s", w, h, name.string());
-    switch (flags & ISurfaceComposerClient::eFXSurfaceMask) {
-        case ISurfaceComposerClient::eFXSurfaceNormal:
+    switch (flags & ISurfaceComposer::eFXSurfaceMask) {
+        case ISurfaceComposer::eFXSurfaceNormal:
             layer = createNormalLayer(client, d, w, h, flags, format);
             break;
-        case ISurfaceComposerClient::eFXSurfaceBlur:
-        case ISurfaceComposerClient::eFXSurfaceDim:
+        case ISurfaceComposer::eFXSurfaceBlur:
+        case ISurfaceComposer::eFXSurfaceDim:
             layer = createDimLayer(client, d, w, h, flags);
             break;
-        case ISurfaceComposerClient::eFXSurfaceScreenshot:
+        case ISurfaceComposer::eFXSurfaceScreenshot:
             layer = createScreenshotLayer(client, d, w, h, flags);
             break;
     }
@@ -1718,9 +1740,16 @@ status_t SurfaceFlinger::dump(int fd, const Vector<String16>& args)
         }
 
         /*
+         * VSYNC state
+         */
+        mEventThread->dump(result, buffer, SIZE);
+
+        /*
          * Dump HWComposer state
          */
         HWComposer& hwc(hw.getHwComposer());
+        snprintf(buffer, SIZE, " h/w composer state:\n");
+        result.append(buffer);
         snprintf(buffer, SIZE, "  h/w composer %s and %s\n",
                 hwc.initCheck()==NO_ERROR ? "present" : "not present",
                 (mDebugDisableHWC || mDebugRegion) ? "disabled" : "enabled");

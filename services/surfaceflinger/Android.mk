@@ -2,6 +2,7 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
+    EventThread.cpp                         \
     Layer.cpp                               \
     LayerBase.cpp             	            \
     LayerDim.cpp                            \
@@ -10,6 +11,8 @@ LOCAL_SRC_FILES:= \
     DisplayHardware/DisplayHardware.cpp     \
     DisplayHardware/DisplayHardwareBase.cpp \
     DisplayHardware/HWComposer.cpp          \
+    DisplayHardware/VSyncBarrier.cpp        \
+    DisplayEventConnection.cpp              \
     GLExtensions.cpp                        \
     MessageQueue.cpp                        \
     SurfaceFlinger.cpp 	                    \
@@ -46,7 +49,7 @@ LOCAL_SHARED_LIBRARIES += libdvm libandroid_runtime libQcomUI
 ifeq ($(TARGET_HAVE_BYPASS),true)
     LOCAL_CFLAGS += -DBUFFER_COUNT_SERVER=3
 else
-    LOCAL_CFLAGS += -DBUFFER_COUNT_SERVER=3
+    LOCAL_CFLAGS += -DBUFFER_COUNT_SERVER=2
 endif
 
 LOCAL_C_INCLUDES := \

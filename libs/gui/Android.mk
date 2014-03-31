@@ -2,11 +2,13 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
+	BitTube.cpp \
+	DisplayEventReceiver.cpp \
+	IDisplayEventConnection.cpp \
 	ISensorEventConnection.cpp \
 	ISensorServer.cpp \
 	ISurfaceTexture.cpp \
 	Sensor.cpp \
-	SensorChannel.cpp \
 	SensorEventQueue.cpp \
 	SensorManager.cpp \
 	SurfaceTexture.cpp \

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_GUI_ISENSOR_EVENT_CONNECTION_H
-#define ANDROID_GUI_ISENSOR_EVENT_CONNECTION_H
+#ifndef ANDROID_GUI_IDISPLAY_EVENT_CONNECTION_H
+#define ANDROID_GUI_IDISPLAY_EVENT_CONNECTION_H
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -30,19 +30,17 @@ namespace android {
 
 class BitTube;
 
-class ISensorEventConnection : public IInterface
+class IDisplayEventConnection : public IInterface
 {
 public:
-    DECLARE_META_INTERFACE(SensorEventConnection);
+    DECLARE_META_INTERFACE(DisplayEventConnection);
 
-    virtual sp<BitTube> getSensorChannel() const = 0;
-    virtual status_t enableDisable(int handle, bool enabled) = 0;
-    virtual status_t setEventRate(int handle, nsecs_t ns) = 0;
+    virtual sp<BitTube> getDataChannel() const = 0;
 };
 
 // ----------------------------------------------------------------------------
 
-class BnSensorEventConnection : public BnInterface<ISensorEventConnection>
+class BnDisplayEventConnection : public BnInterface<IDisplayEventConnection>
 {
 public:
     virtual status_t    onTransact( uint32_t code,
@@ -54,4 +52,4 @@ public:
 // ----------------------------------------------------------------------------
 }; // namespace android
 
-#endif // ANDROID_GUI_ISENSOR_EVENT_CONNECTION_H
+#endif // ANDROID_GUI_IDISPLAY_EVENT_CONNECTION_H

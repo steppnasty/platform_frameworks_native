@@ -46,6 +46,8 @@ namespace android {
 
 class Client;
 class DisplayHardware;
+class DisplayEventConnection;
+class EventThread;
 class Layer;
 class LayerDim;
 class LayerScreenshot;
@@ -187,6 +189,7 @@ public:
                                                             int orientation, uint32_t flags);
     virtual int                         setOrientation(DisplayID dpy, int orientation, uint32_t flags);
     virtual bool                        authenticateSurfaceTexture(const sp<ISurfaceTexture>& surface) const;
+    virtual sp<IDisplayEventConnection> createDisplayEventConnection();
 
     virtual status_t captureScreen(DisplayID dpy,
             sp<IMemoryHeap>* heap,
@@ -235,6 +238,7 @@ private:
 
 private:
     friend class Client;
+    friend class DisplayEventConnection;
     friend class LayerBase;
     friend class LayerBaseClient;
     friend class Layer;
@@ -343,6 +347,9 @@ private:
                     uint32_t reqWidth, uint32_t reqHeight,
                     uint32_t minLayerZ, uint32_t maxLayerZ);
 
+            void cleanupDisplayEventConnection(
+                    const wp<DisplayEventConnection>& connection);
+
             void        debugFlashRegions();
             void        debugShowFPS() const;
             void        drawWormhole() const;
@@ -377,6 +384,7 @@ private:
                 GLuint                      mWormholeTexName;
                 GLuint                      mProtectedTexName;
                 nsecs_t                     mBootTime;
+                sp<EventThread>             mEventThread;
 
                 // Can only accessed from the main thread, these members
                 // don't need synchronization

@@ -78,10 +78,10 @@ void LayerScreenshot::initTexture(GLfloat u, GLfloat v) {
 
 void LayerScreenshot::initStates(uint32_t w, uint32_t h, uint32_t flags) {
     LayerBaseClient::initStates(w, h, flags);
-    if (!(flags & ISurfaceComposerClient::eHidden)) {
+    if (!(flags & ISurfaceComposer::eHidden)) {
         capture();
     }
-    if (flags & ISurfaceComposerClient::eSecure) {
+    if (flags & ISurfaceComposer::eSecure) {
         ALOGW("ignoring surface flag eSecure - LayerScreenshot is considered "
                 "secure if it captures the contents of a secure surface.");
     }
