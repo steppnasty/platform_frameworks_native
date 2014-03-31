@@ -22,7 +22,6 @@ LOCAL_SRC_FILES:= \
 	GraphicBuffer.cpp \
 	GraphicBufferAllocator.cpp \
 	GraphicBufferMapper.cpp \
-	GraphicLog.cpp \
 	PixelFormat.cpp \
 	Rect.cpp \
 	Region.cpp

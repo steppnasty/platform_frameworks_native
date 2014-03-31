@@ -29,7 +29,6 @@
 
 #include <ui/Rect.h>
 #include <ui/FramebufferNativeWindow.h>
-#include <ui/GraphicLog.h>
 
 #include <EGL/egl.h>
 
@@ -240,9 +239,6 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
         self->mBufferHead = 0;
 #endif
 
-    GraphicLog& logger(GraphicLog::getInstance());
-    logger.log(GraphicLog::SF_FB_DEQUEUE_BEFORE, index);
-
 #ifdef QCOMHW
     /* The buffer is available, return it */
     Mutex::Autolock _l(self->mutex);
@@ -266,7 +262,6 @@ int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window,
 
     *buffer = self->buffers[index].get();
 
-    logger.log(GraphicLog::SF_FB_DEQUEUE_AFTER, index);
     return 0;
 }
 
@@ -291,8 +286,6 @@ int FramebufferNativeWindow::lockBuffer(ANativeWindow* window,
 
     const int index = self->mCurrentBufferIndex;
 #endif
-    GraphicLog& logger(GraphicLog::getInstance());
-    logger.log(GraphicLog::SF_FB_LOCK_BEFORE, index);
 
 #ifdef QCOMHW
     fb->lockBuffer(fb, index);
@@ -302,8 +295,6 @@ int FramebufferNativeWindow::lockBuffer(ANativeWindow* window,
         self->mCondition.wait(self->mutex);
     }
 #endif
-    logger.log(GraphicLog::SF_FB_LOCK_AFTER, index);
-
     return NO_ERROR;
 }
 
@@ -316,13 +307,8 @@ int FramebufferNativeWindow::queueBuffer(ANativeWindow* window,
     buffer_handle_t handle = static_cast<NativeBuffer*>(buffer)->handle;
 
     const int index = self->mCurrentBufferIndex;
-    GraphicLog& logger(GraphicLog::getInstance());
-    logger.log(GraphicLog::SF_FB_POST_BEFORE, index);
 
     int res = fb->post(fb, handle);
-
-    logger.log(GraphicLog::SF_FB_POST_AFTER, index);
-
     self->front = static_cast<NativeBuffer*>(buffer);
     self->mNumFreeBuffers++;
     self->mCondition.broadcast();

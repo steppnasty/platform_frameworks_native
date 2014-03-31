@@ -348,7 +348,6 @@ private:
                     uint32_t minLayerZ, uint32_t maxLayerZ);
 
             void        debugFlashRegions();
-            void        debugShowFPS() const;
             void        drawWormhole() const;
 
 #ifdef QCOMHW
