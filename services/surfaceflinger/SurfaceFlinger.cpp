@@ -388,7 +388,7 @@ bool SurfaceFlinger::authenticateSurfaceTexture(
     // which should be reported as "surface XYZ returned an -ENODEV".  The
     // purgatorized layers are no less authentic than the visible ones, so this
     // should not cause any harm.
-    size_t purgatorySize =  mLayerPurgatory.size();
+    size_t purgatorySize = mLayerPurgatory.size();
     for (size_t i=0 ; i<purgatorySize ; i++) {
         const sp<LayerBase>& layer(mLayerPurgatory.itemAt(i));
         sp<LayerBaseClient> lbc(layer->getLayerBaseClient());
@@ -406,14 +406,9 @@ bool SurfaceFlinger::authenticateSurfaceTexture(
 // ----------------------------------------------------------------------------
 
 sp<IDisplayEventConnection> SurfaceFlinger::createDisplayEventConnection() {
-    sp<DisplayEventConnection> result(new DisplayEventConnection(this));
+    sp<DisplayEventConnection> result(new DisplayEventConnection(mEventThread));
     mEventThread->registerDisplayEventConnection(result);
     return result;
-}
-
-void SurfaceFlinger::cleanupDisplayEventConnection(
-        const wp<DisplayEventConnection>& connection) {
-    mEventThread->unregisterDisplayEventConnection(connection);
 }
 
 // ----------------------------------------------------------------------------

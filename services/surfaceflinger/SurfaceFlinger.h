@@ -347,9 +347,6 @@ private:
                     uint32_t reqWidth, uint32_t reqHeight,
                     uint32_t minLayerZ, uint32_t maxLayerZ);
 
-            void cleanupDisplayEventConnection(
-                    const wp<DisplayEventConnection>& connection);
-
             void        debugFlashRegions();
             void        debugShowFPS() const;
             void        drawWormhole() const;
