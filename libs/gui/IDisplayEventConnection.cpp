@@ -52,18 +52,18 @@ public:
         return new BitTube(reply);
     }
 
-virtual void setVsyncRate(uint32_t count) {
-    Parcel data, reply;
-    data.writeInterfaceToken(IDisplayEventConnection::getInterfaceDescriptor());
-    data.writeInt32(count);
-    remote()->transact(SET_VSYNC_RATE, data, &reply);
-}
+    virtual void setVsyncRate(uint32_t count) {
+        Parcel data, reply;
+        data.writeInterfaceToken(IDisplayEventConnection::getInterfaceDescriptor());
+        data.writeInt32(count);
+        remote()->transact(SET_VSYNC_RATE, data, &reply);
+    }
 
-virtual void requestNextVsync() {
-    Parcel data, reply;
-    data.writeInterfaceToken(IDisplayEventConnection::getInterfaceDescriptor());
-    remote()->transact(REQUEST_NEXT_VSYNC, data, &reply, IBinder::FLAG_ONEWAY);
-}
+    virtual void requestNextVsync() {
+        Parcel data, reply;
+        data.writeInterfaceToken(IDisplayEventConnection::getInterfaceDescriptor());
+        remote()->transact(REQUEST_NEXT_VSYNC, data, &reply, IBinder::FLAG_ONEWAY);
+    }
 };
 
 IMPLEMENT_META_INTERFACE(DisplayEventConnection, "android.gui.DisplayEventConnection");

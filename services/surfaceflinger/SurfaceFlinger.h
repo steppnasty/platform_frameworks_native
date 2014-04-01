@@ -187,7 +187,6 @@ public:
     virtual void                        bootFinished();
     virtual void                        setTransactionState(const Vector<ComposerState>& state,
                                                             int orientation, uint32_t flags);
-    virtual int                         setOrientation(DisplayID dpy, int orientation, uint32_t flags);
     virtual bool                        authenticateSurfaceTexture(const sp<ISurfaceTexture>& surface) const;
     virtual sp<IDisplayEventConnection> createDisplayEventConnection();
 
@@ -204,6 +203,8 @@ public:
                     GLuint* textureName, GLfloat* uOut, GLfloat* vOut);
             status_t renderScreenToTextureLocked(DisplayID dpy,
                     GLuint* textureName, GLfloat* uOut, GLfloat* vOut);
+
+            void onMessageReceived(int32_t what);
 
             status_t postMessageAsync(const sp<MessageBase>& msg,
                     nsecs_t reltime=0, uint32_t flags = 0);
@@ -278,7 +279,10 @@ private:
 public:     // hack to work around gcc 4.0.3 bug
     const GraphicPlane&     graphicPlane(int dpy) const;
           GraphicPlane&     graphicPlane(int dpy);
-          void              signalEvent();
+
+          void              signalTransaction();
+          void              signalLayerUpdate();
+          void              signalRefresh();
           void              repaintEverything();
 
 private:
@@ -295,6 +299,7 @@ private:
             void        handlePageFlip();
             bool        lockPageFlip(const LayerVector& currentLayers);
             void        unlockPageFlip(const LayerVector& currentLayers);
+            void        handleRefresh();
             void        handleWorkList();
             void        handleRepaint();
             void        postFramebuffer();
@@ -349,6 +354,14 @@ private:
 
             void        debugFlashRegions();
             void        drawWormhole() const;
+
+            void listLayersLocked(const Vector<String16>& args, size_t& index,
+                    String8& result, char* buffer, size_t SIZE) const;
+            void dumpStatsLocked(const Vector<String16>& args, size_t& index,
+                    String8& result, char* buffer, size_t SIZE) const;
+            void clearStatsLocked(const Vector<String16>& args, size_t& index,
+                    String8& result, char* buffer, size_t SIZE) const;
+            void dumpAllLocked(String8& result, char* buffer, size_t SIZE) const;
 
 #ifdef QCOMHW
             bool isGPULayerPresent();

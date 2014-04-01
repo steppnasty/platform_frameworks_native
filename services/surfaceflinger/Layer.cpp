@@ -38,6 +38,7 @@
 #include "Layer.h"
 #include "SurfaceFlinger.h"
 #include "SurfaceTextureLayer.h"
+#include <math.h>
 
 #ifdef QCOMHW
 #include <qcom_ui.h>
@@ -58,6 +59,9 @@ Layer::Layer(SurfaceFlinger* flinger,
         mCurrentTransform(0),
         mCurrentScalingMode(NATIVE_WINDOW_SCALING_MODE_FREEZE),
         mCurrentOpacity(true),
+        mRefreshPending(0),
+        mFrameLatencyNeeded(false),
+        mFrameLatencyOffset(0),
         mFormat(PIXEL_FORMAT_NONE),
         mGLExtensions(GLExtensions::getInstance()),
         mOpaqueLayer(true),
@@ -73,6 +77,17 @@ Layer::Layer(SurfaceFlinger* flinger,
 #ifdef QCOMHW
     updateLayerQcomFlags(LAYER_UPDATE_STATUS, true, mLayerQcomFlags);
 #endif
+}
+
+void Layer::onLayerDisplayed() {
+    if (mFrameLatencyNeeded) {
+        const DisplayHardware& hw(graphicPlane(0).displayHardware());
+        mFrameStats[mFrameLatencyOffset].timestamp = mSurfaceTexture->getTimestamp();
+        mFrameStats[mFrameLatencyOffset].set = systemTime();
+        mFrameStats[mFrameLatencyOffset].vsync = hw.getRefreshTimestamp();
+        mFrameLatencyOffset = (mFrameLatencyOffset + 1) % 128;
+        mFrameLatencyNeeded = false;
+    }
 }
 
 void Layer::onFirstRef()
@@ -93,7 +108,7 @@ void Layer::onFirstRef()
     mSurfaceTexture = new SurfaceTextureLayer(mTextureName, this);
     mSurfaceTexture->setFrameAvailableListener(new FrameQueuedListener(this));
     mSurfaceTexture->setSynchronousMode(true);
-    mSurfaceTexture->setBufferCountServer(BUFFER_COUNT_SERVER);
+    mSurfaceTexture->setBufferCountServer(2);
 }
 
 Layer::~Layer()
@@ -104,7 +119,7 @@ Layer::~Layer()
 
 void Layer::onFrameQueued() {
     android_atomic_inc(&mQueuedFrames);
-    mFlinger->signalEvent();
+    mFlinger->signalLayerUpdate();
 }
 
 // called with SurfaceFlinger::mStateLock as soon as the layer is entered
@@ -447,16 +462,37 @@ bool Layer::isCropped() const {
 // pageflip handling...
 // ----------------------------------------------------------------------------
 
+bool Layer::onPreComposition()
+{
+    // if there was more than one pending update, request a refresh
+    if (mRefreshPending >= 2) {
+        mRefreshPending = 0;
+        return true;
+    }
+    mRefreshPending = 0;
+    return false;
+}
+
 void Layer::lockPageFlip(bool& recomputeVisibleRegions)
 {
     if (mQueuedFrames > 0) {
+
+        // if we've already called updateTexImage() without going through
+        // a composition step, we have to skip this layer at this point
+        // because we cannot call updateTeximage() without a corresponding
+        // compositionComplete() call.
+        // we'll trigger an update in onPreComposition().
+        if (mRefreshPending++) {
+            return;
+        }
+
         // Capture the old state of the layer for comparisons later
         const bool oldOpacity = isOpaque();
         sp<GraphicBuffer> oldActiveBuffer = mActiveBuffer;
 
         // signal another event if we have more frames pending
         if (android_atomic_dec(&mQueuedFrames) > 1) {
-            mFlinger->signalEvent();
+            mFlinger->signalLayerUpdate();
         }
 
         if (mSurfaceTexture->updateTexImage() < NO_ERROR) {
@@ -469,6 +505,7 @@ void Layer::lockPageFlip(bool& recomputeVisibleRegions)
 #endif
         // update the active buffer
         mActiveBuffer = mSurfaceTexture->getCurrentBuffer();
+        mFrameLatencyNeeded = true;
 
         //Buffer validity changed. Reset HWC geometry flags.
         if(oldActiveBuffer == NULL && mActiveBuffer != NULL) {
@@ -569,6 +606,11 @@ void Layer::lockPageFlip(bool& recomputeVisibleRegions)
 void Layer::unlockPageFlip(
         const Transform& planeTransform, Region& outDirtyRegion)
 {
+
+    if (mRefreshPending >= 2) {
+        return;
+    }
+
     Region dirtyRegion(mPostedDirtyRegion);
     if (!dirtyRegion.isEmpty()) {
         mPostedDirtyRegion.clear();
@@ -602,15 +644,41 @@ void Layer::dump(String8& result, char* buffer, size_t SIZE) const
     snprintf(buffer, SIZE,
             "      "
             "format=%2d, activeBuffer=[%4ux%4u:%4u,%3X],"
-            " transform-hint=0x%02x, queued-frames=%d\n",
+            " transform-hint=0x%02x, queued-frames=%d, mRefreshPending=%d\n",
             mFormat, w0, h0, s0,f0,
-            getTransformHint(), mQueuedFrames);
+            getTransformHint(), mQueuedFrames, mRefreshPending);
 
     result.append(buffer);
 
     if (mSurfaceTexture != 0) {
         mSurfaceTexture->dump(result, "            ", buffer, SIZE);
     }
+}
+
+void Layer::dumpStats(String8& result, char* buffer, size_t SIZE) const
+{
+    LayerBaseClient::dumpStats(result, buffer, SIZE);
+    const size_t o = mFrameLatencyOffset;
+    const DisplayHardware& hw(graphicPlane(0).displayHardware());
+    const nsecs_t period = hw.getRefreshPeriod();
+    result.appendFormat("%lld\n", period);
+    for (size_t i=0 ; i<128 ; i++) {
+        const size_t index = (o+i) % 128;
+        const nsecs_t time_app   = mFrameStats[index].timestamp;
+        const nsecs_t time_set   = mFrameStats[index].set;
+        const nsecs_t time_vsync = mFrameStats[index].vsync;
+        result.appendFormat("%lld\t%lld\t%lld\n",
+                time_app,
+                time_vsync,
+                time_set);
+    }
+    result.append("\n");
+}
+
+void Layer::clearStats()
+{
+    LayerBaseClient::clearStats();
+    memset(mFrameStats, 0, sizeof(mFrameStats));
 }
 
 uint32_t Layer::getEffectiveUsage(uint32_t usage) const

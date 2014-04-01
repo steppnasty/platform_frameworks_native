@@ -102,8 +102,6 @@ public:
             Rect visibleBounds() const;
             void drawRegion(const Region& reg) const;
 
-            void invalidate();
-
     virtual sp<LayerBaseClient> getLayerBaseClient() const { return 0; }
     virtual sp<Layer> getLayer() const { return 0; }
 
@@ -203,7 +201,16 @@ public:
 
     /** called with the state lock when the surface is removed from the
      *  current list */
-    virtual void onRemoved() { };
+    virtual void onRemoved() { }
+
+    /** called after page-flip
+     */
+    virtual void onLayerDisplayed() { }
+
+    /** called before composition.
+     * returns true if the layer has pending updates.
+     */
+    virtual bool onPreComposition() { return false; }
 
 #ifdef QCOMHW
     /** Called from surfaceFlinger to update the layer */
@@ -213,6 +220,8 @@ public:
     /** always call base class first */
     virtual void dump(String8& result, char* scratch, size_t size) const;
     virtual void shortDump(String8& result, char* scratch, size_t size) const;
+    virtual void dumpStats(String8& result, char* buffer, size_t SIZE) const;
+    virtual void clearStats();
 
 
     enum { // flags for doTransaction()
@@ -274,10 +283,6 @@ protected:
                 String8         mName;
     mutable     bool            mDebug;
 
-
-                // atomic
-    volatile    int32_t         mInvalidate;
-                
 
 public:
     // called from class SurfaceFlinger

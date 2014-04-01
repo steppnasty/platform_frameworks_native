@@ -66,7 +66,6 @@ status_t DisplayEventConnection::postEvent(const DisplayEventReceiver::Event& ev
     return size < 0 ? status_t(size) : status_t(NO_ERROR);
 }
 
-
 // ---------------------------------------------------------------------------
 
 }; // namespace android

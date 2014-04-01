@@ -499,8 +499,8 @@ status_t SurfaceComposerClient::setLayer(SurfaceID id, int32_t z) {
 
 status_t SurfaceComposerClient::hide(SurfaceID id) {
     return getComposer().setFlags(this, id,
-            layer_state_t::eLayerHidden,
-            layer_state_t::eLayerHidden);
+            ISurfaceComposer::eLayerHidden,
+            ISurfaceComposer::eLayerHidden);
 }
 
 status_t SurfaceComposerClient::show(SurfaceID id, int32_t) {

@@ -47,8 +47,7 @@ LayerBase::LayerBase(SurfaceFlinger* flinger, DisplayID display)
       mOrientation(0),
       mPlaneOrientation(0),
       mTransactionFlags(0),
-      mPremultipliedAlpha(true), mName("unnamed"), mDebug(false),
-      mInvalidate(0)
+      mPremultipliedAlpha(true), mName("unnamed"), mDebug(false)
 {
     const DisplayHardware& hw(flinger->graphicPlane(0).displayHardware());
     mFlags = hw.getFlags();
@@ -262,23 +261,11 @@ void LayerBase::validateVisibility(const Transform& planeTransform)
     mTransformedBounds = tr.makeBounds(w, h);
 }
 
-void LayerBase::lockPageFlip(bool& recomputeVisibleRegions)
-{
+void LayerBase::lockPageFlip(bool& recomputeVisibleRegions) {
 }
 
 void LayerBase::unlockPageFlip(
-        const Transform& planeTransform, Region& outDirtyRegion)
-{
-    if ((android_atomic_and(~1, &mInvalidate)&1) == 1) {
-        outDirtyRegion.orSelf(visibleRegionScreen);
-    }
-}
-
-void LayerBase::invalidate()
-{
-    if ((android_atomic_or(1, &mInvalidate)&1) == 0) {
-        mFlinger->signalEvent();
-    }
+        const Transform& planeTransform, Region& outDirtyRegion) {
 }
 
 void LayerBase::drawRegion(const Region& reg) const
@@ -471,13 +458,20 @@ void LayerBase::drawWithOpenGL(const Region& clip) const
 void LayerBase::dump(String8& result, char* buffer, size_t SIZE) const
 {
     const Layer::State& s(drawingState());
+
     snprintf(buffer, SIZE,
-            "+ %s %p (%s)\n"
+            "+ %s %p (%s)\n",
+            getTypeId(), this, getName().string());
+    result.append(buffer);
+
+    s.transparentRegion.dump(result, "transparentRegion");
+    transparentRegionScreen.dump(result, "transparentRegionScreen");
+    visibleRegionScreen.dump(result, "visibleRegionScreen");
+    snprintf(buffer, SIZE,
             "      "
             "z=%9d, pos=(%g,%g), size=(%4d,%4d), "
             "isOpaque=%1d, needsDithering=%1d, invalidate=%1d, "
             "alpha=0x%02x, flags=0x%08x, tr=[%.2f, %.2f][%.2f, %.2f]\n",
-            getTypeId(), this, getName().string(),
             s.z, s.transform.tx(), s.transform.ty(), s.w, s.h,
             isOpaque(), needsDithering(), contentDirty,
             s.alpha, s.flags,
@@ -486,11 +480,15 @@ void LayerBase::dump(String8& result, char* buffer, size_t SIZE) const
     result.append(buffer);
 }
 
-void LayerBase::shortDump(String8& result, char* scratch, size_t size) const
-{
+void LayerBase::shortDump(String8& result, char* scratch, size_t size) const {
     LayerBase::dump(result, scratch, size);
 }
 
+void LayerBase::dumpStats(String8& result, char* scratch, size_t SIZE) const {
+}
+
+void LayerBase::clearStats() {
+}
 
 // ---------------------------------------------------------------------------
 

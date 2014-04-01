@@ -36,6 +36,7 @@ namespace android {
 
 class SurfaceFlinger;
 class DisplayHardware;
+class DisplayEventConnection;
 
 // ---------------------------------------------------------------------------
 
@@ -44,6 +45,8 @@ class EventThread : public Thread {
 
 public:
     EventThread(const sp<SurfaceFlinger>& flinger);
+
+    sp<DisplayEventConnection> createEventConnection() const;
 
     status_t registerDisplayEventConnection(
             const sp<DisplayEventConnection>& connection);
@@ -55,6 +58,10 @@ public:
             const wp<DisplayEventConnection>& connection);
 
     void requestNextVsync(const wp<DisplayEventConnection>& connection);
+
+    nsecs_t getLastVSyncTimestamp() const;
+
+    nsecs_t getVSyncPeriod() const;
 
     void dump(String8& result, char* buffer, size_t SIZE) const;
 
@@ -87,7 +94,8 @@ private:
     mutable Condition mCondition;
 
     // protected by mLock
-    KeyedVector<wp<DisplayEventConnection>, ConnectionInfo > mDisplayEventConnections;
+    KeyedVector< wp<DisplayEventConnection>, ConnectionInfo > mDisplayEventConnections;
+    nsecs_t mLastVSyncTimestamp;
 
     // main thread only
     size_t mDeliveredEvents;

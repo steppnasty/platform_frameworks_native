@@ -23,6 +23,10 @@ LOCAL_SRC_FILES:= \
 LOCAL_CFLAGS:= -DLOG_TAG=\"SurfaceFlinger\"
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES -DQCOMHW
 
+ifeq ($(TARGET_HAS_WAITFORVSYNC), true)
+       LOCAL_CFLAGS += -DHAS_WAITFORVSYNC
+endif
+
 ifeq ($(TARGET_BOARD_PLATFORM), omap3)
 	LOCAL_CFLAGS += -DNO_RGBX_8888
 endif
@@ -45,12 +49,6 @@ LOCAL_SHARED_LIBRARIES := \
 
 # this is only needed for DDMS debugging
 LOCAL_SHARED_LIBRARIES += libdvm libandroid_runtime libQcomUI
-
-ifeq ($(TARGET_HAVE_BYPASS),true)
-    LOCAL_CFLAGS += -DBUFFER_COUNT_SERVER=3
-else
-    LOCAL_CFLAGS += -DBUFFER_COUNT_SERVER=2
-endif
 
 LOCAL_C_INCLUDES := \
 	$(call include-path-for, corecg graphics)

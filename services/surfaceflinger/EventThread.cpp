@@ -36,12 +36,27 @@ namespace android {
 EventThread::EventThread(const sp<SurfaceFlinger>& flinger)
     : mFlinger(flinger),
       mHw(flinger->graphicPlane(0).displayHardware()),
+      mLastVSyncTimestamp(0),
       mDeliveredEvents(0)
 {
 }
 
 void EventThread::onFirstRef() {
     run("EventThread", PRIORITY_URGENT_DISPLAY + PRIORITY_MORE_FAVORABLE);
+}
+
+sp<DisplayEventConnection> EventThread::createEventConnection() const {
+    return new DisplayEventConnection(const_cast<EventThread*>(this));
+}
+
+nsecs_t EventThread::getLastVSyncTimestamp() const {
+    Mutex::Autolock _l(mLock);
+    return mLastVSyncTimestamp;
+}
+
+nsecs_t EventThread::getVSyncPeriod() const {
+    return mHw.getRefreshPeriod();
+
 }
 
 status_t EventThread::registerDisplayEventConnection(
@@ -71,8 +86,8 @@ EventThread::ConnectionInfo* EventThread::getConnectionInfoLocked(
         const wp<DisplayEventConnection>& connection) {
     ssize_t index = mDisplayEventConnections.indexOfKey(connection);
     if (index < 0) return NULL;
-        return &mDisplayEventConnections.editValueAt(index);
-    }
+    return &mDisplayEventConnections.editValueAt(index);
+}
 
 void EventThread::setVsyncRate(uint32_t count,
         const wp<DisplayEventConnection>& connection) {
@@ -80,8 +95,11 @@ void EventThread::setVsyncRate(uint32_t count,
         Mutex::Autolock _l(mLock);
         ConnectionInfo* info = getConnectionInfoLocked(connection);
         if (info) {
-            info->count = (count == 0) ? -1 : count;
-            mCondition.signal();
+            const int32_t new_count = (count == 0) ? -1 : count;
+            if (info->count != new_count) {
+                info->count = new_count;
+                mCondition.signal();
+            }
         }
     }
 }
@@ -90,10 +108,8 @@ void EventThread::requestNextVsync(
         const wp<DisplayEventConnection>& connection) {
     Mutex::Autolock _l(mLock);
     ConnectionInfo* info = getConnectionInfoLocked(connection);
-    if (info) {
-        if (info->count < 0) {
-            info->count = 0;
-        }
+    if (info && info->count < 0) {
+        info->count = 0;
         mCondition.signal();
     }
 }
@@ -102,32 +118,22 @@ bool EventThread::threadLoop() {
 
     nsecs_t timestamp;
     DisplayEventReceiver::Event vsync;
-    KeyedVector<wp<DisplayEventConnection>, ConnectionInfo > displayEventConnections;
+    Vector< wp<DisplayEventConnection> > displayEventConnections;
 
     { // scope for the lock
         Mutex::Autolock _l(mLock);
         do {
-            // wait for listeners
+            // see if we need to wait for the VSYNC at all
             do {
                 bool waitForNextVsync = false;
                 size_t count = mDisplayEventConnections.size();
                 for (size_t i=0 ; i<count ; i++) {
                     const ConnectionInfo& info(
                             mDisplayEventConnections.valueAt(i));
-                    if (info.count >= 1) {
-                        // continuous mode
+                    if (info.count >= 0) {
+                        // at least one continuous mode or active one-shot event
                         waitForNextVsync = true;
-                    } else {
-                        // one-shot event
-                        if (info.count >= -1) {
-                            ConnectionInfo& info(
-                                    mDisplayEventConnections.editValueAt(i));
-                            info.count--;
-                            if (info.count == -1) {
-                                // fired this time around
-                                waitForNextVsync = true;
-                            }
-                        }
+                        break;
                     }
                 }
 
@@ -137,53 +143,50 @@ bool EventThread::threadLoop() {
                 mCondition.wait(mLock);
             } while(true);
 
-            // wait for vsync
+            // at least one listener requested VSYNC
             mLock.unlock();
-            timestamp = mHw.waitForVSync();
+            timestamp = mHw.waitForRefresh();
             mLock.lock();
             mDeliveredEvents++;
+            mLastVSyncTimestamp = timestamp;
 
-            // make sure we still have some listeners
-        } while (!mDisplayEventConnections.size());
-
+            // now see if we still need to report this VSYNC event
+            const size_t count = mDisplayEventConnections.size();
+            for (size_t i=0 ; i<count ; i++) {
+                bool reportVsync = false;
+                const ConnectionInfo& info(
+                        mDisplayEventConnections.valueAt(i));
+                if (info.count >= 1) {
+                    if (info.count==1 || (mDeliveredEvents % info.count) == 0) {
+                        // continuous event, and time to report it
+                        reportVsync = true;
+                    }
+                } else if (info.count >= -1) {
+                    ConnectionInfo& info(
+                            mDisplayEventConnections.editValueAt(i));
+                    if (info.count == 0) {
+                        // fired this time around
+                        reportVsync = true;
+                    }
+                    info.count--;
+                }
+                if (reportVsync) {
+                    displayEventConnections.add(mDisplayEventConnections.keyAt(i));
+                }
+            }
+        } while (!displayEventConnections.size());
 
         // dispatch vsync events to listeners...
-
         vsync.header.type = DisplayEventReceiver::DISPLAY_EVENT_VSYNC;
         vsync.header.timestamp = timestamp;
         vsync.vsync.count = mDeliveredEvents;
-
-        // make a copy of our connection list, so we can
-        // dispatch events without holding mLock
-        displayEventConnections = mDisplayEventConnections;
     }
 
     const size_t count = displayEventConnections.size();
     for (size_t i=0 ; i<count ; i++) {
-        sp<DisplayEventConnection> conn(displayEventConnections.keyAt(i).promote());
+        sp<DisplayEventConnection> conn(displayEventConnections[i].promote());
         // make sure the connection didn't die
         if (conn != NULL) {
-
-            const ConnectionInfo& info(
-            displayEventConnections.valueAt(i));
-
-            if ((info.count > 1) && (mDeliveredEvents % info.count)) {
-                // continuous event, but not time to send this event yet
-                continue;
-            } else if (info.count < -1) {
-                // disabled event
-                continue;
-            } else if (info.count == 0) {
-                // impossible by construction. but we prefer to be safe.
-                continue;
-            }
-
-            // here, either:
-            // count = -1 : one-shot scheduled this time around
-            // count = 1 : continuous not rate-limited
-            // count > 1 : continuous, rate-limited
-            // Note: count == 0 is not possible by construction
-
             status_t err = conn->postEvent(vsync);
             if (err == -EAGAIN || err == -EWOULDBLOCK) {
                 // The destination doesn't accept events anymore, it's probably
@@ -195,12 +198,12 @@ bool EventThread::threadLoop() {
                 // handle any other error on the pipe as fatal. the only
                 // reasonable thing to do is to clean-up this connection.
                 // The most common error we'll get here is -EPIPE.
-                removeDisplayEventConnection(displayEventConnections.keyAt(i));
+                removeDisplayEventConnection(displayEventConnections[i]);
             }
         } else {
             // somehow the connection is dead, but we still have it in our list
             // just clean the list.
-            removeDisplayEventConnection(displayEventConnections.keyAt(i));
+            removeDisplayEventConnection(displayEventConnections[i]);
         }
     }
 
@@ -211,7 +214,7 @@ bool EventThread::threadLoop() {
 }
 
 status_t EventThread::readyToRun() {
-    LOGI("EventThread ready to run.");
+    ALOGI("EventThread ready to run.");
     return NO_ERROR;
 }
 

@@ -70,6 +70,8 @@ void LayerScreenshot::initTexture(GLfloat u, GLfloat v) {
     glBindTexture(GL_TEXTURE_2D, mTextureName);
     glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     mTexCoords[0] = 0;         mTexCoords[1] = v;
     mTexCoords[2] = 0;         mTexCoords[3] = 0;
     mTexCoords[4] = u;         mTexCoords[5] = 0;
@@ -92,15 +94,15 @@ uint32_t LayerScreenshot::doTransaction(uint32_t flags)
     const Layer::State& draw(drawingState());
     const Layer::State& curr(currentState());
 
-    if (draw.flags & layer_state_t::eLayerHidden) {
-        if (!(curr.flags & layer_state_t::eLayerHidden)) {
+    if (draw.flags & ISurfaceComposer::eLayerHidden) {
+        if (!(curr.flags & ISurfaceComposer::eLayerHidden)) {
             // we're going from hidden to visible
             status_t err = captureLocked();
             if (err != NO_ERROR) {
                 ALOGW("createScreenshotSurface failed (%s)", strerror(-err));
             }
         }
-    } else if (curr.flags & layer_state_t::eLayerHidden) {
+    } else if (curr.flags & ISurfaceComposer::eLayerHidden) {
         // we're going from visible to hidden
         if (mTextureName) {
             glDeleteTextures(1, &mTextureName);

@@ -35,13 +35,6 @@
 
 // ---------------------------------------------------------------------------
 
-/* ideally AID_GRAPHICS would be in a semi-public header
- * or there would be a way to map a user/group name to its id
- */
-#ifndef AID_GRAPHICS
-#define AID_GRAPHICS 1003
-#endif
-
 #define LIKELY( exp )       (__builtin_expect( (exp) != 0, true  ))
 #define UNLIKELY( exp )     (__builtin_expect( (exp) != 0, false ))
 

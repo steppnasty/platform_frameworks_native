@@ -80,8 +80,14 @@ status_t DisplayEventReceiver::requestNextVsync() {
 
 ssize_t DisplayEventReceiver::getEvents(DisplayEventReceiver::Event* events,
         size_t count) {
-    ssize_t size = mDataChannel->read(events, sizeof(events[0])*count);
-    LOGE_IF(size<0,
+    return DisplayEventReceiver::getEvents(mDataChannel, events, count);
+}
+
+ssize_t DisplayEventReceiver::getEvents(const sp<BitTube>& dataChannel,
+        Event* events, size_t count)
+{
+    ssize_t size = dataChannel->read(events, sizeof(events[0])*count);
+    ALOGE_IF(size<0,
             "DisplayEventReceiver::getEvents error (%s)",
             strerror(-size));
     if (size >= 0) {

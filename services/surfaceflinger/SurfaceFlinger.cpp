@@ -59,16 +59,10 @@
 #include "DisplayHardware/DisplayHardware.h"
 #include "DisplayHardware/HWComposer.h"
 
+#include <private/android_filesystem_config.h>
 #include <private/gui/SharedBufferStack.h>
 #ifdef QCOMHW
 #include <qcom_ui.h>
-#endif
-
-/* ideally AID_GRAPHICS would be in a semi-public header
- * or there would be a way to map a user/group name to its id
- */
-#ifndef AID_GRAPHICS
-#define AID_GRAPHICS 1003
 #endif
 
 #define EGL_VERSION_HW_ANDROID  0x3143
@@ -136,9 +130,31 @@ void SurfaceFlinger::init()
     ALOGI_IF(mDebugDDMS,         "DDMS debugging enabled");
 }
 
+void SurfaceFlinger::onFirstRef()
+{
+    mEventQueue.init(this);
+
+    run("SurfaceFlinger", PRIORITY_URGENT_DISPLAY);
+
+    // Wait for the main thread to be done with its initialization
+    mReadyToRunBarrier.wait();
+}
+
 SurfaceFlinger::~SurfaceFlinger()
 {
     glDeleteTextures(1, &mWormholeTexName);
+}
+
+void SurfaceFlinger::binderDied(const wp<IBinder>& who)
+{
+    // the window manager died on us. prepare its eulogy.
+
+    // reset screen orientation
+    Vector<ComposerState> state;
+    setTransactionState(state, eOrientationDefault, 0);
+
+    // restart the boot-animation
+    property_set("ctl.start", "bootanim");
 }
 
 sp<IMemoryHeap> SurfaceFlinger::getCblk() const
@@ -192,25 +208,6 @@ void SurfaceFlinger::bootFinished()
 
     // stop boot animation
     property_set("ctl.stop", "bootanim");
-}
-
-void SurfaceFlinger::binderDied(const wp<IBinder>& who)
-{
-    // the window manager died on us. prepare its eulogy.
-
-    // reset screen orientation
-    setOrientation(0, eOrientationDefault, 0);
-
-    // restart the boot-animation
-    property_set("ctl.start", "bootanim");
-}
-
-void SurfaceFlinger::onFirstRef()
-{
-    run("SurfaceFlinger", PRIORITY_URGENT_DISPLAY);
-
-    // Wait for the main thread to be done with its initialization
-    mReadyToRunBarrier.wait();
 }
 
 static inline uint16_t pack565(int r, int g, int b) {
@@ -305,6 +302,7 @@ status_t SurfaceFlinger::readyToRun()
 
     // start the EventThread
     mEventThread = new EventThread(this);
+    mEventQueue.setEventThread(mEventThread);
 
     /*
      *  We're now ready to accept clients...
@@ -316,47 +314,6 @@ status_t SurfaceFlinger::readyToRun()
     property_set("ctl.start", "bootanim");
 
     return NO_ERROR;
-}
-
-// ----------------------------------------------------------------------------
-#if 0
-#pragma mark -
-#pragma mark Events Handler
-#endif
-
-void SurfaceFlinger::waitForEvent()
-{
-    while (true) {
-        nsecs_t timeout = -1;
-        sp<MessageBase> msg = mEventQueue.waitMessage(timeout);
-        if (msg != 0) {
-            switch (msg->what) {
-                case MessageQueue::INVALIDATE:
-                    // invalidate message, just return to the main loop
-                    return;
-            }
-        }
-    }
-}
-
-void SurfaceFlinger::signalEvent() {
-    mEventQueue.invalidate();
-}
-
-status_t SurfaceFlinger::postMessageAsync(const sp<MessageBase>& msg,
-        nsecs_t reltime, uint32_t flags)
-{
-    return mEventQueue.postMessage(msg, reltime, flags);
-}
-
-status_t SurfaceFlinger::postMessageSync(const sp<MessageBase>& msg,
-        nsecs_t reltime, uint32_t flags)
-{
-    status_t res = mEventQueue.postMessage(msg, reltime, flags);
-    if (res == NO_ERROR) {
-        msg->wait();
-    }
-    return res;
 }
 
 // ----------------------------------------------------------------------------
@@ -405,92 +362,101 @@ bool SurfaceFlinger::authenticateSurfaceTexture(
 // ----------------------------------------------------------------------------
 
 sp<IDisplayEventConnection> SurfaceFlinger::createDisplayEventConnection() {
-    sp<DisplayEventConnection> result(new DisplayEventConnection(mEventThread));
-    mEventThread->registerDisplayEventConnection(result);
-    return result;
+    return mEventThread->createEventConnection();
 }
 
 // ----------------------------------------------------------------------------
-#if 0
-#pragma mark -
-#pragma mark Main loop
-#endif
+
+void SurfaceFlinger::waitForEvent() {
+    mEventQueue.waitMessage();
+}
+
+void SurfaceFlinger::signalTransaction() {
+    mEventQueue.invalidate();
+}
+
+void SurfaceFlinger::signalLayerUpdate() {
+    mEventQueue.invalidate();
+}
+
+void SurfaceFlinger::signalRefresh() {
+    mEventQueue.refresh();
+}
+
+status_t SurfaceFlinger::postMessageAsync(const sp<MessageBase>& msg,
+        nsecs_t reltime, uint32_t flags) {
+    return mEventQueue.postMessage(msg, reltime);
+}
+
+status_t SurfaceFlinger::postMessageSync(const sp<MessageBase>& msg,
+        nsecs_t reltime, uint32_t flags) {
+    status_t res = mEventQueue.postMessage(msg, reltime);
+    if (res == NO_ERROR) {
+        msg->wait();
+    }
+    return res;
+}
 
 bool SurfaceFlinger::threadLoop()
 {
     waitForEvent();
-
-    // check for transactions
-    if (UNLIKELY(mConsoleSignals)) {
-        handleConsoleEvents();
-    }
-
-#ifdef QCOM_HDMI_OUT
-    //Serializes HDMI event handling and drawing.
-    //Necessary for race-free overlay channel management.
-    //Must always be held only after handleConsoleEvents() since
-    //that could enable / disable HDMI based on suspend resume
-    Mutex::Autolock _l(mExtDispLock);
-#else
-    // if we're in a global transaction, don't do anything.
-#endif
-    const uint32_t mask = eTransactionNeeded | eTraversalNeeded;
-    uint32_t transactionFlags = peekTransactionFlags(mask);
-    if (UNLIKELY(transactionFlags)) {
-        handleTransaction(transactionFlags);
-    }
-
-    // post surfaces (if needed)
-    handlePageFlip();
-
-    if (mDirtyRegion.isEmpty()) {
-        // nothing new to do.
-        return true;
-    }
-
-    if (UNLIKELY(mHwWorkListDirty)) {
-        // build the h/w work list
-        handleWorkList();
-    }
-
-    const DisplayHardware& hw(graphicPlane(0).displayHardware());
-    if (LIKELY(hw.canDraw())) {
-        // repaint the framebuffer (if needed)
-        handleRepaint();
-#ifdef QCOMHW
-        if (!mCanSkipComposition) {
-            // inform the h/w that we're done compositing
-            hw.compositionComplete();
-            postFramebuffer();
-        } else {
-            HWComposer& hwc(graphicPlane(0).displayHardware().getHwComposer());
-            hwc.commit();
-        }
-#else
-	// inform the h/w that we're done compositing
-	hw.compositionComplete();
-	postFramebuffer();
-#endif
-    } else {
-        // pretend we did the post
-        hw.compositionComplete();
-        hw.waitForVSync();
-
-#ifdef QCOMHW
-        //If the draw is skipped by any chance, we need to force
-        //composition atleast once.
-        HWComposer& hwc(hw.getHwComposer());
-        hwc.perform(EVENT_FORCE_COMPOSITION, 1);
-#endif
-    }
     return true;
+}
+
+void SurfaceFlinger::onMessageReceived(int32_t what)
+{
+    switch (what) {
+        case MessageQueue::INVALIDATE: {
+            // check for transactions
+            if (CC_UNLIKELY(mConsoleSignals)) {
+                handleConsoleEvents();
+            }
+
+            // if we're in a global transaction, don't do anything.
+            const uint32_t mask = eTransactionNeeded | eTraversalNeeded;
+            uint32_t transactionFlags = peekTransactionFlags(mask);
+            if (CC_UNLIKELY(transactionFlags)) {
+                handleTransaction(transactionFlags);
+            }
+
+            // post surfaces (if needed)
+            handlePageFlip();
+
+            signalRefresh();
+        } break;
+
+        case MessageQueue::REFRESH: {
+            // NOTE: it is mandatory to call hw.compositionComplete()
+            // after handleRefresh()
+            const DisplayHardware& hw(graphicPlane(0).displayHardware());
+            handleRefresh();
+
+            if (CC_UNLIKELY(mHwWorkListDirty)) {
+                // build the h/w work list
+                handleWorkList();
+            }
+            if (CC_LIKELY(hw.canDraw())) {
+                // repaint the framebuffer (if needed)
+                handleRepaint();
+                // inform the h/w that we're done compositing
+                hw.compositionComplete();
+                postFramebuffer();
+            } else {
+                // pretend we did the post
+                hw.compositionComplete();
+            }
+
+        } break;
+    }
 }
 
 void SurfaceFlinger::postFramebuffer()
 {
-    // this should never happen. we do the flip anyways so we don't
-    // risk to cause a deadlock with hwc
-    ALOGW_IF(mSwapRegion.isEmpty(), "mSwapRegion is empty");
+    // mSwapRegion can be empty here is some cases, for instance if a hidden
+    // or fully transparent window is updating.
+    // in that case, we need to flip anyways to not risk a deadlock with
+    // h/w composer.
+
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
     const nsecs_t now = systemTime();
 #ifdef QCOM_HDMI_OUT
@@ -506,6 +472,12 @@ void SurfaceFlinger::postFramebuffer()
     }
 #endif
     hw.flip(mSwapRegion);
+
+    size_t numLayers = mVisibleLayersSortedByZ.size();
+    for (size_t i = 0; i < numLayers; i++) {
+        mVisibleLayersSortedByZ[i]->onLayerDisplayed();
+    }
+
     mLastSwapBufferTime = systemTime() - now;
     mDebugInSwapBuffers = 0;
     mSwapRegion.clear();
@@ -775,13 +747,13 @@ void SurfaceFlinger::commitTransaction()
 
 void SurfaceFlinger::handlePageFlip()
 {
-    bool visibleRegions = mVisibleRegionsDirty;
-    const LayerVector& currentLayers(mDrawingState.layersSortedByZ);
-    visibleRegions |= lockPageFlip(currentLayers);
+    const DisplayHardware& hw = graphicPlane(0).displayHardware();
+    const Region screenRegion(hw.bounds());
 
-        const DisplayHardware& hw = graphicPlane(0).displayHardware();
-        const Region screenRegion(hw.bounds());
-        if (visibleRegions) {
+    const LayerVector& currentLayers(mDrawingState.layersSortedByZ);
+    const bool visibleRegions = lockPageFlip(currentLayers);
+
+        if (visibleRegions || mVisibleRegionsDirty) {
             Region opaqueRegion;
             computeVisibleRegions(currentLayers, mDirtyRegion, opaqueRegion);
 
@@ -828,13 +800,30 @@ void SurfaceFlinger::unlockPageFlip(const LayerVector& currentLayers)
 {
     const GraphicPlane& plane(graphicPlane(0));
     const Transform& planeTransform(plane.transform());
-    size_t count = currentLayers.size();
+    const size_t count = currentLayers.size();
     sp<LayerBase> const* layers = currentLayers.array();
     for (size_t i=0 ; i<count ; i++) {
         const sp<LayerBase>& layer(layers[i]);
         layer->unlockPageFlip(planeTransform, mDirtyRegion);
     }
 }
+
+void SurfaceFlinger::handleRefresh()
+{
+    bool needInvalidate = false;
+    const LayerVector& currentLayers(mDrawingState.layersSortedByZ);
+    const size_t count = currentLayers.size();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(currentLayers[i]);
+        if (layer->onPreComposition()) {
+            needInvalidate = true;
+        }
+    }
+    if (needInvalidate) {
+        signalLayerUpdate();
+    }
+}
+
 
 void SurfaceFlinger::handleWorkList()
 {
@@ -1291,7 +1280,7 @@ uint32_t SurfaceFlinger::setTransactionFlags(uint32_t flags)
 {
     uint32_t old = android_atomic_or(flags, &mTransactionFlags);
     if ((old & flags)==0) { // wake the server up
-        signalEvent();
+        signalTransaction();
     }
     return old;
 }
@@ -1341,26 +1330,6 @@ void SurfaceFlinger::setTransactionState(const Vector<ComposerState>& state,
     }
 }
 
-int SurfaceFlinger::setOrientation(DisplayID dpy,
-        int orientation, uint32_t flags)
-{
-    if (UNLIKELY(uint32_t(dpy) >= DISPLAY_COUNT))
-        return BAD_VALUE;
-
-    Mutex::Autolock _l(mStateLock);
-    if (mCurrentState.orientation != orientation) {
-        if (uint32_t(orientation)<=eOrientation270 || orientation==42) {
-            mCurrentState.orientationFlags = flags;
-            mCurrentState.orientation = orientation;
-            setTransactionFlags(eTransactionNeeded);
-            mTransactionCV.wait(mStateLock);
-        } else {
-            orientation = BAD_VALUE;
-        }
-    }
-    return orientation;
-}
-
 status_t SurfaceFlinger::removeSurface(const sp<Client>& client, SurfaceID sid)
 {
     /*
@@ -1382,75 +1351,6 @@ status_t SurfaceFlinger::removeSurface(const sp<Client>& client, SurfaceID sid)
         }
     }
     return err;
-}
-
-status_t SurfaceFlinger::destroySurface(const wp<LayerBaseClient>& layer)
-{
-    // called by ~ISurface() when all references are gone
-    status_t err = NO_ERROR;
-    sp<LayerBaseClient> l(layer.promote());
-    if (l != NULL) {
-        Mutex::Autolock _l(mStateLock);
-        err = removeLayer_l(l);
-        if (err == NAME_NOT_FOUND) {
-            // The surface wasn't in the current list, which means it was
-            // removed already, which means it is in the purgatory,
-            // and need to be removed from there.
-            ssize_t idx = mLayerPurgatory.remove(l);
-            ALOGE_IF(idx < 0,
-                    "layer=%p is not in the purgatory list", l.get());
-        }
-        ALOGE_IF(err<0 && err != NAME_NOT_FOUND,
-                "error removing layer=%p (%s)", l.get(), strerror(-err));
-    }
-    return err;
-}
-
-uint32_t SurfaceFlinger::setClientStateLocked(
-        const sp<Client>& client,
-        const layer_state_t& s)
-{
-    uint32_t flags = 0;
-    sp<LayerBaseClient> layer(client->getLayerUser(s.surface));
-    if (layer != 0) {
-        const uint32_t what = s.what;
-        if (what & ePositionChanged) {
-            if (layer->setPosition(s.x, s.y))
-                flags |= eTraversalNeeded;
-        }
-        if (what & eLayerChanged) {
-            ssize_t idx = mCurrentState.layersSortedByZ.indexOf(layer);
-            if (layer->setLayer(s.z)) {
-                mCurrentState.layersSortedByZ.removeAt(idx);
-                mCurrentState.layersSortedByZ.add(layer);
-                // we need traversal (state changed)
-                // AND transaction (list changed)
-                flags |= eTransactionNeeded|eTraversalNeeded;
-            }
-        }
-        if (what & eSizeChanged) {
-            if (layer->setSize(s.w, s.h)) {
-                flags |= eTraversalNeeded;
-            }
-        }
-        if (what & eAlphaChanged) {
-            if (layer->setAlpha(uint8_t(255.0f*s.alpha+0.5f)))
-                flags |= eTraversalNeeded;
-        }
-        if (what & eMatrixChanged) {
-            if (layer->setMatrix(s.matrix))
-                flags |= eTraversalNeeded;
-        }
-        if (what & eTransparentRegionChanged) {
-            if (layer->setTransparentRegionHint(s.transparentRegion))
-                flags |= eTraversalNeeded;
-        }
-        if (what & eVisibilityChanged) {
-            if (layer->setFlags(s.flags, s.mask))
-                flags |= eTraversalNeeded;
-        }
-    }
-    return flags;
 }
 
 sp<ISurface> SurfaceFlinger::createLayer(
@@ -1572,18 +1472,87 @@ status_t SurfaceFlinger::onLayerRemoved(const sp<Client>& client, SurfaceID sid)
     return err;
 }
 
+status_t SurfaceFlinger::destroySurface(const wp<LayerBaseClient>& layer)
+{
+    // called by ~ISurface() when all references are gone
+    status_t err = NO_ERROR;
+    sp<LayerBaseClient> l(layer.promote());
+    if (l != NULL) {
+        Mutex::Autolock _l(mStateLock);
+        err = removeLayer_l(l);
+        if (err == NAME_NOT_FOUND) {
+            // The surface wasn't in the current list, which means it was
+            // removed already, which means it is in the purgatory,
+            // and need to be removed from there.
+            ssize_t idx = mLayerPurgatory.remove(l);
+            ALOGE_IF(idx < 0,
+                    "layer=%p is not in the purgatory list", l.get());
+        }
+        ALOGE_IF(err<0 && err != NAME_NOT_FOUND,
+                "error removing layer=%p (%s)", l.get(), strerror(-err));
+    }
+    return err;
+}
+
+uint32_t SurfaceFlinger::setClientStateLocked(
+        const sp<Client>& client,
+        const layer_state_t& s)
+{
+    uint32_t flags = 0;
+    sp<LayerBaseClient> layer(client->getLayerUser(s.surface));
+    if (layer != 0) {
+        const uint32_t what = s.what;
+        if (what & ePositionChanged) {
+            if (layer->setPosition(s.x, s.y))
+                flags |= eTraversalNeeded;
+        }
+        if (what & eLayerChanged) {
+            ssize_t idx = mCurrentState.layersSortedByZ.indexOf(layer);
+            if (layer->setLayer(s.z)) {
+                mCurrentState.layersSortedByZ.removeAt(idx);
+                mCurrentState.layersSortedByZ.add(layer);
+                // we need traversal (state changed)
+                // AND transaction (list changed)
+                flags |= eTransactionNeeded|eTraversalNeeded;
+            }
+        }
+        if (what & eSizeChanged) {
+            if (layer->setSize(s.w, s.h)) {
+                flags |= eTraversalNeeded;
+            }
+        }
+        if (what & eAlphaChanged) {
+            if (layer->setAlpha(uint8_t(255.0f*s.alpha+0.5f)))
+                flags |= eTraversalNeeded;
+        }
+        if (what & eMatrixChanged) {
+            if (layer->setMatrix(s.matrix))
+                flags |= eTraversalNeeded;
+        }
+        if (what & eTransparentRegionChanged) {
+            if (layer->setTransparentRegionHint(s.transparentRegion))
+                flags |= eTraversalNeeded;
+        }
+        if (what & eVisibilityChanged) {
+            if (layer->setFlags(s.flags, s.mask))
+                flags |= eTraversalNeeded;
+        }
+    }
+    return flags;
+}
+
 void SurfaceFlinger::screenReleased(int dpy)
 {
     // this may be called by a signal handler, we can't do too much in here
     android_atomic_or(eConsoleReleased, &mConsoleSignals);
-    signalEvent();
+    signalTransaction();
 }
 
 void SurfaceFlinger::screenAcquired(int dpy)
 {
     // this may be called by a signal handler, we can't do too much in here
     android_atomic_or(eConsoleAcquired, &mConsoleSignals);
-    signalEvent();
+    signalTransaction();
 }
 
 status_t SurfaceFlinger::dump(int fd, const Vector<String16>& args)
@@ -1600,13 +1569,6 @@ status_t SurfaceFlinger::dump(int fd, const Vector<String16>& args)
         result.append(buffer);
     } else {
 
-        // figure out if we're stuck somewhere
-        const nsecs_t now = systemTime();
-        const nsecs_t inSwapBuffers(mDebugInSwapBuffers);
-        const nsecs_t inTransaction(mDebugInTransaction);
-        nsecs_t inSwapBuffersDuration = (inSwapBuffers) ? now-inSwapBuffers : 0;
-        nsecs_t inTransactionDuration = (inTransaction) ? now-inTransaction : 0;
-
         // Try to get the main lock, but don't insist if we can't
         // (this would indicate SF is stuck, but we want to be able to
         // print something in dumpsys).
@@ -1622,110 +1584,34 @@ status_t SurfaceFlinger::dump(int fd, const Vector<String16>& args)
             result.append(buffer);
         }
 
-        /*
-         * Dump the visible layer list
-         */
-        const LayerVector& currentLayers = mCurrentState.layersSortedByZ;
-        const size_t count = currentLayers.size();
-        snprintf(buffer, SIZE, "Visible layers (count = %d)\n", count);
-        result.append(buffer);
-        for (size_t i=0 ; i<count ; i++) {
-            const sp<LayerBase>& layer(currentLayers[i]);
-            layer->dump(result, buffer, SIZE);
-            const Layer::State& s(layer->drawingState());
-            s.transparentRegion.dump(result, "transparentRegion");
-            layer->transparentRegionScreen.dump(result, "transparentRegionScreen");
-            layer->visibleRegionScreen.dump(result, "visibleRegionScreen");
+        bool dumpAll = true;
+        size_t index = 0;
+        size_t numArgs = args.size();
+        if (numArgs) {
+            dumpAll = false;
+
+            if ((index < numArgs) &&
+                    (args[index] == String16("--list"))) {
+                index++;
+                listLayersLocked(args, index, result, buffer, SIZE);
+            }
+
+            if ((index < numArgs) &&
+                    (args[index] == String16("--latency"))) {
+                index++;
+                dumpStatsLocked(args, index, result, buffer, SIZE);
+            }
+
+            if ((index < numArgs) &&
+                    (args[index] == String16("--latency-clear"))) {
+                index++;
+                clearStatsLocked(args, index, result, buffer, SIZE);
+            }
         }
 
-        /*
-         * Dump the layers in the purgatory
-         */
-
-        const size_t purgatorySize = mLayerPurgatory.size();
-        snprintf(buffer, SIZE, "Purgatory state (%d entries)\n", purgatorySize);
-        result.append(buffer);
-        for (size_t i=0 ; i<purgatorySize ; i++) {
-            const sp<LayerBase>& layer(mLayerPurgatory.itemAt(i));
-            layer->shortDump(result, buffer, SIZE);
+        if (dumpAll) {
+            dumpAllLocked(result, buffer, SIZE);
         }
-
-        /*
-         * Dump SurfaceFlinger global state
-         */
-
-        snprintf(buffer, SIZE, "SurfaceFlinger global state:\n");
-        result.append(buffer);
-
-        const GLExtensions& extensions(GLExtensions::getInstance());
-        snprintf(buffer, SIZE, "GLES: %s, %s, %s\n",
-                extensions.getVendor(),
-                extensions.getRenderer(),
-                extensions.getVersion());
-        result.append(buffer);
-
-        snprintf(buffer, SIZE, "EGL : %s\n",
-                eglQueryString(graphicPlane(0).getEGLDisplay(),
-                        EGL_VERSION_HW_ANDROID));
-        result.append(buffer);
-
-        snprintf(buffer, SIZE, "EXTS: %s\n", extensions.getExtension());
-        result.append(buffer);
-
-        mWormholeRegion.dump(result, "WormholeRegion");
-        const DisplayHardware& hw(graphicPlane(0).displayHardware());
-        snprintf(buffer, SIZE,
-                "  orientation=%d, canDraw=%d\n",
-                mCurrentState.orientation, hw.canDraw());
-        result.append(buffer);
-        snprintf(buffer, SIZE,
-                "  last eglSwapBuffers() time: %f us\n"
-                "  last transaction time     : %f us\n"
-                "  refresh-rate              : %f fps\n"
-                "  x-dpi                     : %f\n"
-                "  y-dpi                     : %f\n",
-                mLastSwapBufferTime/1000.0,
-                mLastTransactionTime/1000.0,
-                hw.getRefreshRate(),
-                hw.getDpiX(),
-                hw.getDpiY());
-        result.append(buffer);
-
-        if (inSwapBuffersDuration || !locked) {
-            snprintf(buffer, SIZE, "  eglSwapBuffers time: %f us\n",
-                    inSwapBuffersDuration/1000.0);
-            result.append(buffer);
-        }
-
-        if (inTransactionDuration || !locked) {
-            snprintf(buffer, SIZE, "  transaction time: %f us\n",
-                    inTransactionDuration/1000.0);
-            result.append(buffer);
-        }
-
-        /*
-         * VSYNC state
-         */
-        mEventThread->dump(result, buffer, SIZE);
-
-        /*
-         * Dump HWComposer state
-         */
-        HWComposer& hwc(hw.getHwComposer());
-        snprintf(buffer, SIZE, " h/w composer state:\n");
-        result.append(buffer);
-        snprintf(buffer, SIZE, "  h/w composer %s and %s\n",
-                hwc.initCheck()==NO_ERROR ? "present" : "not present",
-                (mDebugDisableHWC || mDebugRegion) ? "disabled" : "enabled");
-        result.append(buffer);
-        hwc.dump(result, buffer, SIZE, mVisibleLayersSortedByZ);
-
-        /*
-         * Dump gralloc state
-         */
-        const GraphicBufferAllocator& alloc(GraphicBufferAllocator::get());
-        alloc.dump(result);
-        hw.dump(result);
 
         if (locked) {
             mStateLock.unlock();
@@ -1733,6 +1619,170 @@ status_t SurfaceFlinger::dump(int fd, const Vector<String16>& args)
     }
     write(fd, result.string(), result.size());
     return NO_ERROR;
+}
+
+void SurfaceFlinger::listLayersLocked(const Vector<String16>& args, size_t& index,
+        String8& result, char* buffer, size_t SIZE) const
+{
+    const LayerVector& currentLayers = mCurrentState.layersSortedByZ;
+    const size_t count = currentLayers.size();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(currentLayers[i]);
+        snprintf(buffer, SIZE, "%s\n", layer->getName().string());
+        result.append(buffer);
+    }
+}
+
+void SurfaceFlinger::dumpStatsLocked(const Vector<String16>& args, size_t& index,
+        String8& result, char* buffer, size_t SIZE) const
+{
+    String8 name;
+    if (index < args.size()) {
+        name = String8(args[index]);
+        index++;
+    }
+
+    const LayerVector& currentLayers = mCurrentState.layersSortedByZ;
+    const size_t count = currentLayers.size();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(currentLayers[i]);
+        if (name.isEmpty()) {
+            snprintf(buffer, SIZE, "%s\n", layer->getName().string());
+            result.append(buffer);
+        }
+        if (name.isEmpty() || (name == layer->getName())) {
+            layer->dumpStats(result, buffer, SIZE);
+        }
+    }
+}
+
+void SurfaceFlinger::clearStatsLocked(const Vector<String16>& args, size_t& index,
+        String8& result, char* buffer, size_t SIZE) const
+{
+    String8 name;
+    if (index < args.size()) {
+        name = String8(args[index]);
+        index++;
+    }
+
+    const LayerVector& currentLayers = mCurrentState.layersSortedByZ;
+    const size_t count = currentLayers.size();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(currentLayers[i]);
+        if (name.isEmpty() || (name == layer->getName())) {
+            layer->clearStats();
+        }
+    }
+}
+
+void SurfaceFlinger::dumpAllLocked(
+        String8& result, char* buffer, size_t SIZE) const
+{
+    // figure out if we're stuck somewhere
+    const nsecs_t now = systemTime();
+    const nsecs_t inSwapBuffers(mDebugInSwapBuffers);
+    const nsecs_t inTransaction(mDebugInTransaction);
+    nsecs_t inSwapBuffersDuration = (inSwapBuffers) ? now-inSwapBuffers : 0;
+    nsecs_t inTransactionDuration = (inTransaction) ? now-inTransaction : 0;
+
+    /*
+     * Dump the visible layer list
+     */
+    const LayerVector& currentLayers = mCurrentState.layersSortedByZ;
+    const size_t count = currentLayers.size();
+    snprintf(buffer, SIZE, "Visible layers (count = %d)\n", count);
+    result.append(buffer);
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(currentLayers[i]);
+        layer->dump(result, buffer, SIZE);
+    }
+
+    /*
+     * Dump the layers in the purgatory
+     */
+
+    const size_t purgatorySize = mLayerPurgatory.size();
+    snprintf(buffer, SIZE, "Purgatory state (%d entries)\n", purgatorySize);
+    result.append(buffer);
+    for (size_t i=0 ; i<purgatorySize ; i++) {
+        const sp<LayerBase>& layer(mLayerPurgatory.itemAt(i));
+        layer->shortDump(result, buffer, SIZE);
+    }
+
+    /*
+     * Dump SurfaceFlinger global state
+     */
+
+    snprintf(buffer, SIZE, "SurfaceFlinger global state:\n");
+    result.append(buffer);
+
+    const GLExtensions& extensions(GLExtensions::getInstance());
+    snprintf(buffer, SIZE, "GLES: %s, %s, %s\n",
+            extensions.getVendor(),
+            extensions.getRenderer(),
+            extensions.getVersion());
+    result.append(buffer);
+
+    snprintf(buffer, SIZE, "EGL : %s\n",
+            eglQueryString(graphicPlane(0).getEGLDisplay(),
+                    EGL_VERSION_HW_ANDROID));
+    result.append(buffer);
+
+    snprintf(buffer, SIZE, "EXTS: %s\n", extensions.getExtension());
+    result.append(buffer);
+
+    mWormholeRegion.dump(result, "WormholeRegion");
+    const DisplayHardware& hw(graphicPlane(0).displayHardware());
+    snprintf(buffer, SIZE,
+            "  orientation=%d, canDraw=%d\n",
+            mCurrentState.orientation, hw.canDraw());
+    result.append(buffer);
+    snprintf(buffer, SIZE,
+            "  last eglSwapBuffers() time: %f us\n"
+            "  last transaction time     : %f us\n"
+            "  transaction-flags         : %08x\n"
+            "  refresh-rate              : %f fps\n"
+            "  x-dpi                     : %f\n"
+            "  y-dpi                     : %f\n",
+            mLastSwapBufferTime/1000.0,
+            mLastTransactionTime/1000.0,
+            mTransactionFlags,
+            hw.getRefreshRate(),
+            hw.getDpiX(),
+            hw.getDpiY());
+    result.append(buffer);
+
+    snprintf(buffer, SIZE, "  eglSwapBuffers time: %f us\n",
+            inSwapBuffersDuration/1000.0);
+    result.append(buffer);
+
+    snprintf(buffer, SIZE, "  transaction time: %f us\n",
+            inTransactionDuration/1000.0);
+    result.append(buffer);
+
+    /*
+     * VSYNC state
+     */
+    mEventThread->dump(result, buffer, SIZE);
+
+    /*
+     * Dump HWComposer state
+     */
+    HWComposer& hwc(hw.getHwComposer());
+    snprintf(buffer, SIZE, "h/w composer state:\n");
+    result.append(buffer);
+    snprintf(buffer, SIZE, "  h/w composer %s and %s\n",
+            hwc.initCheck()==NO_ERROR ? "present" : "not present",
+                    (mDebugDisableHWC || mDebugRegion) ? "disabled" : "enabled");
+    result.append(buffer);
+    hwc.dump(result, buffer, SIZE, mVisibleLayersSortedByZ);
+
+    /*
+     * Dump gralloc state
+     */
+    const GraphicBufferAllocator& alloc(GraphicBufferAllocator::get());
+    alloc.dump(result);
+    hw.dump(result);
 }
 
 status_t SurfaceFlinger::onTransact(
@@ -1839,7 +1889,7 @@ void SurfaceFlinger::repaintEverything() {
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
     const Rect bounds(hw.getBounds());
     setInvalidateRegion(Region(bounds));
-    signalEvent();
+    signalTransaction();
 }
 
 void SurfaceFlinger::setInvalidateRegion(const Region& reg) {
