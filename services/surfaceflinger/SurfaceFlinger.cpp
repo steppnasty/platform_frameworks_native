@@ -303,6 +303,7 @@ status_t SurfaceFlinger::readyToRun()
     // start the EventThread
     mEventThread = new EventThread(this);
     mEventQueue.setEventThread(mEventThread);
+    hw.startSleepManagement();
 
     /*
      *  We're now ready to accept clients...
@@ -406,7 +407,8 @@ bool SurfaceFlinger::threadLoop()
 void SurfaceFlinger::onMessageReceived(int32_t what)
 {
     switch (what) {
-        case MessageQueue::INVALIDATE: {
+        case MessageQueue::REFRESH: {
+//        case MessageQueue::INVALIDATE: {
             // check for transactions
             if (CC_UNLIKELY(mConsoleSignals)) {
                 handleConsoleEvents();
@@ -422,14 +424,19 @@ void SurfaceFlinger::onMessageReceived(int32_t what)
             // post surfaces (if needed)
             handlePageFlip();
 
-            signalRefresh();
-        } break;
+//            signalRefresh();
+//
+//        } break;
+//
+//        case MessageQueue::REFRESH: {
 
-        case MessageQueue::REFRESH: {
-            // NOTE: it is mandatory to call hw.compositionComplete()
-            // after handleRefresh()
-            const DisplayHardware& hw(graphicPlane(0).displayHardware());
             handleRefresh();
+
+            const DisplayHardware& hw(graphicPlane(0).displayHardware());
+
+//            if (mDirtyRegion.isEmpty()) {
+//                return;
+//            }
 
             if (CC_UNLIKELY(mHwWorkListDirty)) {
                 // build the h/w work list
@@ -1066,6 +1073,12 @@ void SurfaceFlinger::composeSurfaces(const Region& dirty)
         drawWormhole();
 #endif
     }
+
+    // FIXME: workaroud for b/6020860
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0,0,0,0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    // end-workaround
 
     /*
      * and then, render the layers targeted at the framebuffer
@@ -1856,6 +1869,10 @@ status_t SurfaceFlinger::onTransact(
                 setTransactionFlags(eTransactionNeeded|eTraversalNeeded);
                 return NO_ERROR;
             }
+            case 1006:{ // send empty update
+                signalRefresh();
+                return NO_ERROR;
+            }
             case 1008:  // toggle use of hw composer
                 n = data.readInt32();
                 mDebugDisableHWC = n ? 1 : 0;
@@ -1873,6 +1890,7 @@ status_t SurfaceFlinger::onTransact(
                 reply->writeInt32(0);
                 reply->writeInt32(mDebugRegion);
                 reply->writeInt32(mDebugBackground);
+                reply->writeInt32(mDebugDisableHWC);
                 return NO_ERROR;
             case 1013: {
                 Mutex::Autolock _l(mStateLock);
