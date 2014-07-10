@@ -47,6 +47,11 @@ protected:
     }
 
     virtual void SetUp() {
+        const ::testing::TestInfo* const testInfo =
+            ::testing::UnitTest::GetInstance()->current_test_info();
+        ALOGV("Begin test: %s.%s", testInfo->test_case_name(),
+                testInfo->name());
+
         mEglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
         ASSERT_NE(EGL_NO_DISPLAY, mEglDisplay);
@@ -78,7 +83,7 @@ protected:
             ASSERT_EQ(NO_ERROR, mComposerClient->initCheck());
 
             mSurfaceControl = mComposerClient->createSurface(
-                    String8("Test Surface"), 0,
+                    String8("Test Surface"),
                     getSurfaceWidth(), getSurfaceHeight(),
                     PIXEL_FORMAT_RGB_888, 0);
 
@@ -127,7 +132,7 @@ protected:
     }
 
     virtual void TearDown() {
-        // Display the result 
+        // Display the result
         if (mDisplaySecs > 0 && mEglSurface != EGL_NO_SURFACE) {
             eglSwapBuffers(mEglDisplay, mEglSurface);
             sleep(mDisplaySecs);
@@ -148,6 +153,11 @@ protected:
             eglTerminate(mEglDisplay);
         }
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+        const ::testing::TestInfo* const testInfo =
+            ::testing::UnitTest::GetInstance()->current_test_info();
+        ALOGV("End test:   %s.%s", testInfo->test_case_name(),
+                testInfo->name());
     }
 
     virtual EGLint const* getConfigAttribs() {
@@ -179,100 +189,6 @@ protected:
 
     virtual EGLint getSurfaceHeight() {
         return 512;
-    }
-
-    void loadShader(GLenum shaderType, const char* pSource, GLuint* outShader) {
-        GLuint shader = glCreateShader(shaderType);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        if (shader) {
-            glShaderSource(shader, 1, &pSource, NULL);
-            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-            glCompileShader(shader);
-            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-            GLint compiled = 0;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-            if (!compiled) {
-                GLint infoLen = 0;
-                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
-                ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-                if (infoLen) {
-                    char* buf = (char*) malloc(infoLen);
-                    if (buf) {
-                        glGetShaderInfoLog(shader, infoLen, NULL, buf);
-                        printf("Shader compile log:\n%s\n", buf);
-                        free(buf);
-                        FAIL();
-                    }
-                } else {
-                    char* buf = (char*) malloc(0x1000);
-                    if (buf) {
-                        glGetShaderInfoLog(shader, 0x1000, NULL, buf);
-                        printf("Shader compile log:\n%s\n", buf);
-                        free(buf);
-                        FAIL();
-                    }
-                }
-                glDeleteShader(shader);
-                shader = 0;
-            }
-        }
-        ASSERT_TRUE(shader != 0);
-        *outShader = shader;
-    }
-
-    void createProgram(const char* pVertexSource, const char* pFragmentSource,
-            GLuint* outPgm) {
-        GLuint vertexShader, fragmentShader;
-        {
-            SCOPED_TRACE("compiling vertex shader");
-            loadShader(GL_VERTEX_SHADER, pVertexSource, &vertexShader);
-            if (HasFatalFailure()) {
-                return;
-            }
-        }
-        {
-            SCOPED_TRACE("compiling fragment shader");
-            loadShader(GL_FRAGMENT_SHADER, pFragmentSource, &fragmentShader);
-            if (HasFatalFailure()) {
-                return;
-            }
-        }
-
-        GLuint program = glCreateProgram();
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        if (program) {
-            glAttachShader(program, vertexShader);
-            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-            glAttachShader(program, fragmentShader);
-            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-            glLinkProgram(program);
-            GLint linkStatus = GL_FALSE;
-            glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
-            if (linkStatus != GL_TRUE) {
-                GLint bufLength = 0;
-                glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
-                if (bufLength) {
-                    char* buf = (char*) malloc(bufLength);
-                    if (buf) {
-                        glGetProgramInfoLog(program, bufLength, NULL, buf);
-                        printf("Program link log:\n%s\n", buf);
-                        free(buf);
-                        FAIL();
-                    }
-                }
-                glDeleteProgram(program);
-                program = 0;
-            }
-        }
-        glDeleteShader(vertexShader);
-        glDeleteShader(fragmentShader);
-        ASSERT_TRUE(program != 0);
-        *outPgm = program;
-    }
-
-    static int abs(int value) {
-        return value > 0 ? value : -value;
     }
 
     ::testing::AssertionResult checkPixel(int x, int y, int r,
@@ -320,6 +236,44 @@ protected:
         }
     }
 
+    ::testing::AssertionResult assertRectEq(const Rect &r1,
+        const Rect &r2, int tolerance=1) {
+
+        String8 msg;
+
+        if (abs(r1.left - r2.left) > tolerance) {
+            msg += String8::format("left(%d isn't %d)", r1.left, r2.left);
+        }
+        if (abs(r1.top - r2.top) > tolerance) {
+            if (!msg.isEmpty()) {
+                msg += " ";
+            }
+            msg += String8::format("top(%d isn't %d)", r1.top, r2.top);
+        }
+        if (abs(r1.right - r2.right) > tolerance) {
+            if (!msg.isEmpty()) {
+                msg += " ";
+            }
+            msg += String8::format("right(%d isn't %d)", r1.right, r2.right);
+        }
+        if (abs(r1.bottom - r2.bottom) > tolerance) {
+            if (!msg.isEmpty()) {
+                msg += " ";
+            }
+            msg += String8::format("bottom(%d isn't %d)", r1.bottom, r2.bottom);
+        }
+        if (!msg.isEmpty()) {
+            msg += String8::format(" R1: [%d %d %d %d] R2: [%d %d %d %d]",
+                r1.left, r1.top, r1.right, r1.bottom,
+                r2.left, r2.top, r2.right, r2.bottom);
+            fprintf(stderr, "assertRectEq: %s\n", msg.string());
+            return ::testing::AssertionFailure(
+                    ::testing::Message(msg.string()));
+        } else {
+            return ::testing::AssertionSuccess();
+        }
+    }
+
     int mDisplaySecs;
     sp<SurfaceComposerClient> mComposerClient;
     sp<SurfaceControl> mSurfaceControl;
@@ -329,6 +283,98 @@ protected:
     EGLContext mEglContext;
     EGLConfig  mGlConfig;
 };
+
+static void loadShader(GLenum shaderType, const char* pSource,
+        GLuint* outShader) {
+    GLuint shader = glCreateShader(shaderType);
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    if (shader) {
+        glShaderSource(shader, 1, &pSource, NULL);
+        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        glCompileShader(shader);
+        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        GLint compiled = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        if (!compiled) {
+            GLint infoLen = 0;
+            glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            if (infoLen) {
+                char* buf = (char*) malloc(infoLen);
+                if (buf) {
+                    glGetShaderInfoLog(shader, infoLen, NULL, buf);
+                    printf("Shader compile log:\n%s\n", buf);
+                    free(buf);
+                    FAIL();
+                }
+            } else {
+                char* buf = (char*) malloc(0x1000);
+                if (buf) {
+                    glGetShaderInfoLog(shader, 0x1000, NULL, buf);
+                    printf("Shader compile log:\n%s\n", buf);
+                    free(buf);
+                    FAIL();
+                }
+            }
+            glDeleteShader(shader);
+            shader = 0;
+        }
+    }
+    ASSERT_TRUE(shader != 0);
+    *outShader = shader;
+}
+
+static void createProgram(const char* pVertexSource,
+        const char* pFragmentSource, GLuint* outPgm) {
+    GLuint vertexShader, fragmentShader;
+    {
+        SCOPED_TRACE("compiling vertex shader");
+        ASSERT_NO_FATAL_FAILURE(loadShader(GL_VERTEX_SHADER, pVertexSource,
+                &vertexShader));
+    }
+    {
+        SCOPED_TRACE("compiling fragment shader");
+        ASSERT_NO_FATAL_FAILURE(loadShader(GL_FRAGMENT_SHADER, pFragmentSource,
+                &fragmentShader));
+    }
+
+    GLuint program = glCreateProgram();
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    if (program) {
+        glAttachShader(program, vertexShader);
+        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        glAttachShader(program, fragmentShader);
+        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        glLinkProgram(program);
+        GLint linkStatus = GL_FALSE;
+        glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        if (linkStatus != GL_TRUE) {
+            GLint bufLength = 0;
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &bufLength);
+            if (bufLength) {
+                char* buf = (char*) malloc(bufLength);
+                if (buf) {
+                    glGetProgramInfoLog(program, bufLength, NULL, buf);
+                    printf("Program link log:\n%s\n", buf);
+                    free(buf);
+                    FAIL();
+                }
+            }
+            glDeleteProgram(program);
+            program = 0;
+        }
+    }
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+    ASSERT_TRUE(program != 0);
+    *outPgm = program;
+}
+
+static int abs(int value) {
+    return value > 0 ? value : -value;
+}
+
 
 // XXX: Code above this point should live elsewhere
 
@@ -341,43 +387,10 @@ protected:
         mST = new SurfaceTexture(TEX_ID);
         mSTC = new SurfaceTextureClient(mST);
         mANW = mSTC;
-
-        const char vsrc[] =
-            "attribute vec4 vPosition;\n"
-            "varying vec2 texCoords;\n"
-            "uniform mat4 texMatrix;\n"
-            "void main() {\n"
-            "  vec2 vTexCoords = 0.5 * (vPosition.xy + vec2(1.0, 1.0));\n"
-            "  texCoords = (texMatrix * vec4(vTexCoords, 0.0, 1.0)).xy;\n"
-            "  gl_Position = vPosition;\n"
-            "}\n";
-
-        const char fsrc[] =
-            "#extension GL_OES_EGL_image_external : require\n"
-            "precision mediump float;\n"
-            "uniform samplerExternalOES texSampler;\n"
-            "varying vec2 texCoords;\n"
-            "void main() {\n"
-            "  gl_FragColor = texture2D(texSampler, texCoords);\n"
-            "}\n";
-
-        {
-            SCOPED_TRACE("creating shader program");
-            createProgram(vsrc, fsrc, &mPgm);
-            if (HasFatalFailure()) {
-                return;
-            }
-        }
-
-        mPositionHandle = glGetAttribLocation(mPgm, "vPosition");
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        ASSERT_NE(-1, mPositionHandle);
-        mTexSamplerHandle = glGetUniformLocation(mPgm, "texSampler");
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        ASSERT_NE(-1, mTexSamplerHandle);
-        mTexMatrixHandle = glGetUniformLocation(mPgm, "texMatrix");
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        ASSERT_NE(-1, mTexMatrixHandle);
+        mTextureRenderer = new TextureRenderer(TEX_ID, mST);
+        ASSERT_NO_FATAL_FAILURE(mTextureRenderer->SetUp());
+        mFW = new FrameWaiter;
+        mST->setFrameAvailableListener(mFW);
     }
 
     virtual void TearDown() {
@@ -387,50 +400,106 @@ protected:
         GLTest::TearDown();
     }
 
-    // drawTexture draws the SurfaceTexture over the entire GL viewport.
     void drawTexture() {
-        const GLfloat triangleVertices[] = {
-            -1.0f, 1.0f,
-            -1.0f, -1.0f,
-            1.0f, -1.0f,
-            1.0f, 1.0f,
-        };
-
-        glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, GL_FALSE, 0,
-                triangleVertices);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        glEnableVertexAttribArray(mPositionHandle);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-
-        glUseProgram(mPgm);
-        glUniform1i(mTexSamplerHandle, 0);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        glBindTexture(GL_TEXTURE_EXTERNAL_OES, TEX_ID);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-
-        // XXX: These calls are not needed for GL_TEXTURE_EXTERNAL_OES as
-        // they're setting the defautls for that target, but when hacking things
-        // to use GL_TEXTURE_2D they are needed to achieve the same behavior.
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER,
-                GL_LINEAR);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,
-                GL_LINEAR);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,
-                GL_CLAMP_TO_EDGE);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-        glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,
-                GL_CLAMP_TO_EDGE);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
-
-        GLfloat texMatrix[16];
-        mST->getTransformMatrix(texMatrix);
-        glUniformMatrix4fv(mTexMatrixHandle, 1, GL_FALSE, texMatrix);
-
-        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-        ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        mTextureRenderer->drawTexture();
     }
+
+    class TextureRenderer: public RefBase {
+    public:
+        TextureRenderer(GLuint texName, const sp<SurfaceTexture>& st):
+                mTexName(texName),
+                mST(st) {
+        }
+
+        void SetUp() {
+            const char vsrc[] =
+                "attribute vec4 vPosition;\n"
+                "varying vec2 texCoords;\n"
+                "uniform mat4 texMatrix;\n"
+                "void main() {\n"
+                "  vec2 vTexCoords = 0.5 * (vPosition.xy + vec2(1.0, 1.0));\n"
+                "  texCoords = (texMatrix * vec4(vTexCoords, 0.0, 1.0)).xy;\n"
+                "  gl_Position = vPosition;\n"
+                "}\n";
+
+            const char fsrc[] =
+                "#extension GL_OES_EGL_image_external : require\n"
+                "precision mediump float;\n"
+                "uniform samplerExternalOES texSampler;\n"
+                "varying vec2 texCoords;\n"
+                "void main() {\n"
+                "  gl_FragColor = texture2D(texSampler, texCoords);\n"
+                "}\n";
+
+            {
+                SCOPED_TRACE("creating shader program");
+                ASSERT_NO_FATAL_FAILURE(createProgram(vsrc, fsrc, &mPgm));
+            }
+
+            mPositionHandle = glGetAttribLocation(mPgm, "vPosition");
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            ASSERT_NE(-1, mPositionHandle);
+            mTexSamplerHandle = glGetUniformLocation(mPgm, "texSampler");
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            ASSERT_NE(-1, mTexSamplerHandle);
+            mTexMatrixHandle = glGetUniformLocation(mPgm, "texMatrix");
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            ASSERT_NE(-1, mTexMatrixHandle);
+        }
+
+        // drawTexture draws the SurfaceTexture over the entire GL viewport.
+        void drawTexture() {
+            static const GLfloat triangleVertices[] = {
+                -1.0f, 1.0f,
+                -1.0f, -1.0f,
+                1.0f, -1.0f,
+                1.0f, 1.0f,
+            };
+
+            glVertexAttribPointer(mPositionHandle, 2, GL_FLOAT, GL_FALSE, 0,
+                    triangleVertices);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            glEnableVertexAttribArray(mPositionHandle);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+
+            glUseProgram(mPgm);
+            glUniform1i(mTexSamplerHandle, 0);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            glBindTexture(GL_TEXTURE_EXTERNAL_OES, mTexName);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+
+            // XXX: These calls are not needed for GL_TEXTURE_EXTERNAL_OES as
+            // they're setting the defautls for that target, but when hacking
+            // things to use GL_TEXTURE_2D they are needed to achieve the same
+            // behavior.
+            glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER,
+                    GL_LINEAR);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER,
+                    GL_LINEAR);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S,
+                    GL_CLAMP_TO_EDGE);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+            glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T,
+                    GL_CLAMP_TO_EDGE);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+
+            GLfloat texMatrix[16];
+            mST->getTransformMatrix(texMatrix);
+            glUniformMatrix4fv(mTexMatrixHandle, 1, GL_FALSE, texMatrix);
+
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+        }
+
+        GLuint mTexName;
+        sp<SurfaceTexture> mST;
+        GLuint mPgm;
+        GLint mPositionHandle;
+        GLint mTexSamplerHandle;
+        GLint mTexMatrixHandle;
+    };
 
     class FrameWaiter : public SurfaceTexture::FrameAvailableListener {
     public:
@@ -457,14 +526,60 @@ protected:
         Condition mCondition;
     };
 
+    // Note that SurfaceTexture will lose the notifications
+    // onBuffersReleased and onFrameAvailable as there is currently
+    // no way to forward the events.  This DisconnectWaiter will not let the
+    // disconnect finish until finishDisconnect() is called.  It will
+    // also block until a disconnect is called
+    class DisconnectWaiter : public BufferQueue::ConsumerListener {
+    public:
+        DisconnectWaiter () :
+            mWaitForDisconnect(false),
+            mPendingFrames(0) {
+        }
+
+        void waitForFrame() {
+            Mutex::Autolock lock(mMutex);
+            while (mPendingFrames == 0) {
+                mFrameCondition.wait(mMutex);
+            }
+            mPendingFrames--;
+        }
+
+        virtual void onFrameAvailable() {
+            Mutex::Autolock lock(mMutex);
+            mPendingFrames++;
+            mFrameCondition.signal();
+        }
+
+        virtual void onBuffersReleased() {
+            Mutex::Autolock lock(mMutex);
+            while (!mWaitForDisconnect) {
+                mDisconnectCondition.wait(mMutex);
+            }
+        }
+
+        void finishDisconnect() {
+            Mutex::Autolock lock(mMutex);
+            mWaitForDisconnect = true;
+            mDisconnectCondition.signal();
+        }
+
+    private:
+        Mutex mMutex;
+
+        bool mWaitForDisconnect;
+        Condition mDisconnectCondition;
+
+        int mPendingFrames;
+        Condition mFrameCondition;
+    };
+
     sp<SurfaceTexture> mST;
     sp<SurfaceTextureClient> mSTC;
     sp<ANativeWindow> mANW;
-
-    GLuint mPgm;
-    GLint mPositionHandle;
-    GLint mTexSamplerHandle;
-    GLint mTexMatrixHandle;
+    sp<TextureRenderer> mTextureRenderer;
+    sp<FrameWaiter> mFW;
 };
 
 // Fill a YV12 buffer with a multi-colored checkerboard pattern
@@ -550,6 +665,28 @@ void fillRGBA8BufferSolid(uint8_t* buf, int w, int h, int stride, uint8_t r,
     }
 }
 
+// Produce a single RGBA8 frame by filling a buffer with a checkerboard pattern
+// using the CPU.  This assumes that the ANativeWindow is already configured to
+// allow this to be done (e.g. the format is set to RGBA8).
+//
+// Calls to this function should be wrapped in an ASSERT_NO_FATAL_FAILURE().
+void produceOneRGBA8Frame(const sp<ANativeWindow>& anw) {
+    android_native_buffer_t* anb;
+    ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(anw.get(),
+            &anb));
+    ASSERT_TRUE(anb != NULL);
+
+    sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
+
+    uint8_t* img = NULL;
+    ASSERT_EQ(NO_ERROR, buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN,
+            (void**)(&img)));
+    fillRGBA8Buffer(img, buf->getWidth(), buf->getHeight(), buf->getStride());
+    ASSERT_EQ(NO_ERROR, buf->unlock());
+    ASSERT_EQ(NO_ERROR, anw->queueBuffer(anw.get(), buf->getNativeBuffer(),
+            -1));
+}
+
 TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BufferNpot) {
     const int texWidth = 64;
     const int texHeight = 66;
@@ -560,20 +697,21 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BufferNpot) {
             GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
     ANativeWindowBuffer* anb;
-    ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     ASSERT_TRUE(anb != NULL);
 
     sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-    ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(), buf->getNativeBuffer()));
 
     // Fill the buffer with the a checkerboard pattern
     uint8_t* img = NULL;
     buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
     fillYV12Buffer(img, texWidth, texHeight, buf->getStride());
     buf->unlock();
-    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer()));
+    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer(),
+            -1));
 
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     glClearColor(0.2, 0.2, 0.2, 0.2);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -605,20 +743,21 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BufferPow2) {
             GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
     ANativeWindowBuffer* anb;
-    ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     ASSERT_TRUE(anb != NULL);
 
     sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-    ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(), buf->getNativeBuffer()));
 
     // Fill the buffer with the a checkerboard pattern
     uint8_t* img = NULL;
     buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
     fillYV12Buffer(img, texWidth, texHeight, buf->getStride());
     buf->unlock();
-    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer()));
+    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer(),
+            -1));
 
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     glClearColor(0.2, 0.2, 0.2, 0.2);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -665,21 +804,20 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BufferWithCrop) {
         ASSERT_EQ(NO_ERROR, native_window_set_crop(mANW.get(), &crop));
 
         ANativeWindowBuffer* anb;
-        ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+        ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+                &anb));
         ASSERT_TRUE(anb != NULL);
 
         sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-        ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(),
-                buf->getNativeBuffer()));
 
         uint8_t* img = NULL;
         buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
         fillYV12BufferRect(img, texWidth, texHeight, buf->getStride(), crop);
         buf->unlock();
         ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(),
-                buf->getNativeBuffer()));
+                buf->getNativeBuffer(), -1));
 
-        mST->updateTexImage();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
         glClearColor(0.2, 0.2, 0.2, 0.2);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -710,7 +848,7 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
     enum { numFrames = 1024 };
 
     ASSERT_EQ(NO_ERROR, mST->setSynchronousMode(true));
-    ASSERT_EQ(NO_ERROR, mST->setBufferCountServer(2));
+    ASSERT_EQ(NO_ERROR, mST->setDefaultMaxBufferCount(2));
     ASSERT_EQ(NO_ERROR, native_window_set_buffers_geometry(mANW.get(),
             texWidth, texHeight, HAL_PIXEL_FORMAT_YV12));
     ASSERT_EQ(NO_ERROR, native_window_set_usage(mANW.get(),
@@ -741,7 +879,8 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
         virtual bool threadLoop() {
             for (int i = 0; i < numFrames; i++) {
                 ANativeWindowBuffer* anb;
-                if (mANW->dequeueBuffer(mANW.get(), &anb) != NO_ERROR) {
+                if (native_window_dequeue_buffer_and_wait(mANW.get(),
+                        &anb) != NO_ERROR) {
                     return false;
                 }
                 if (anb == NULL) {
@@ -749,10 +888,6 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
                 }
 
                 sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-                if (mANW->lockBuffer(mANW.get(), buf->getNativeBuffer())
-                        != NO_ERROR) {
-                    return false;
-                }
 
                 const int yuvTexOffsetY = 0;
                 int stride = buf->getStride();
@@ -796,7 +931,7 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
                 }
 
                 buf->unlock();
-                if (mANW->queueBuffer(mANW.get(), buf->getNativeBuffer())
+                if (mANW->queueBuffer(mANW.get(), buf->getNativeBuffer(), -1)
                         != NO_ERROR) {
                     return false;
                 }
@@ -808,9 +943,6 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
         const TestPixel* mTestPixels;
     };
 
-    sp<FrameWaiter> fw(new FrameWaiter);
-    mST->setFrameAvailableListener(fw);
-
     sp<Thread> pt(new ProducerThread(mANW, testPixels));
     pt->run();
 
@@ -821,8 +953,8 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
 
     // We wait for the first two frames up front so that the producer will be
     // likely to dequeue the buffer that's currently being textured from.
-    fw->waitForFrame();
-    fw->waitForFrame();
+    mFW->waitForFrame();
+    mFW->waitForFrame();
 
     for (int i = 0; i < numFrames; i++) {
         SCOPED_TRACE(String8::format("frame %d", i).string());
@@ -832,9 +964,9 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledYV12BuffersRepeatedly) {
         // then the producer and consumer will get out of sync, which will cause
         // a deadlock.
         if (i > 1) {
-            fw->waitForFrame();
+            mFW->waitForFrame();
         }
-        mST->updateTexImage();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         drawTexture();
 
         for (int j = 0; j < numTestPixels; j++) {
@@ -863,21 +995,9 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledRGBABufferNpot) {
     ASSERT_EQ(NO_ERROR, native_window_set_usage(mANW.get(),
             GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
-    android_native_buffer_t* anb;
-    ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
-    ASSERT_TRUE(anb != NULL);
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
 
-    sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-    ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(), buf->getNativeBuffer()));
-
-    // Fill the buffer with the a checkerboard pattern
-    uint8_t* img = NULL;
-    buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
-    fillRGBA8Buffer(img, texWidth, texHeight, buf->getStride());
-    buf->unlock();
-    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer()));
-
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     glClearColor(0.2, 0.2, 0.2, 0.2);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -917,21 +1037,9 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledRGBABufferPow2) {
     ASSERT_EQ(NO_ERROR, native_window_set_usage(mANW.get(),
             GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
-    android_native_buffer_t* anb;
-    ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
-    ASSERT_TRUE(anb != NULL);
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
 
-    sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-    ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(), buf->getNativeBuffer()));
-
-    // Fill the buffer with the a checkerboard pattern
-    uint8_t* img = NULL;
-    buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
-    fillRGBA8Buffer(img, texWidth, texHeight, buf->getStride());
-    buf->unlock();
-    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer()));
-
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     glClearColor(0.2, 0.2, 0.2, 0.2);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -962,6 +1070,198 @@ TEST_F(SurfaceTextureGLTest, TexturingFromCpuFilledRGBABufferPow2) {
     EXPECT_TRUE(checkPixel( 3, 52,  35, 231,  35,  35));
 }
 
+// Tests if SurfaceTexture and BufferQueue are robust enough
+// to handle a special case where updateTexImage is called
+// in the middle of disconnect.  This ordering is enforced
+// by blocking in the disconnect callback.
+TEST_F(SurfaceTextureGLTest, DisconnectStressTest) {
+
+    class ProducerThread : public Thread {
+    public:
+        ProducerThread(const sp<ANativeWindow>& anw):
+                mANW(anw) {
+        }
+
+        virtual ~ProducerThread() {
+        }
+
+        virtual bool threadLoop() {
+            ANativeWindowBuffer* anb;
+
+            native_window_api_connect(mANW.get(), NATIVE_WINDOW_API_EGL);
+
+            for (int numFrames =0 ; numFrames < 2; numFrames ++) {
+
+                if (native_window_dequeue_buffer_and_wait(mANW.get(),
+                        &anb) != NO_ERROR) {
+                    return false;
+                }
+                if (anb == NULL) {
+                    return false;
+                }
+                if (mANW->queueBuffer(mANW.get(), anb, -1)
+                        != NO_ERROR) {
+                    return false;
+                }
+            }
+
+            native_window_api_disconnect(mANW.get(), NATIVE_WINDOW_API_EGL);
+
+            return false;
+        }
+
+    private:
+        sp<ANativeWindow> mANW;
+    };
+
+    ASSERT_EQ(OK, mST->setSynchronousMode(true));
+
+    sp<DisconnectWaiter> dw(new DisconnectWaiter());
+    mST->getBufferQueue()->consumerConnect(dw);
+
+
+    sp<Thread> pt(new ProducerThread(mANW));
+    pt->run();
+
+    // eat a frame so SurfaceTexture will own an at least one slot
+    dw->waitForFrame();
+    EXPECT_EQ(OK,mST->updateTexImage());
+
+    dw->waitForFrame();
+    // Could fail here as SurfaceTexture thinks it still owns the slot
+    // but bufferQueue has released all slots
+    EXPECT_EQ(OK,mST->updateTexImage());
+
+    dw->finishDisconnect();
+}
+
+
+// This test ensures that the SurfaceTexture clears the mCurrentTexture
+// when it is disconnected and reconnected.  Otherwise it will
+// attempt to release a buffer that it does not owned
+TEST_F(SurfaceTextureGLTest, DisconnectClearsCurrentTexture) {
+    ASSERT_EQ(OK, mST->setSynchronousMode(true));
+
+    ASSERT_EQ(OK, native_window_api_connect(mANW.get(),
+            NATIVE_WINDOW_API_EGL));
+
+    ANativeWindowBuffer *anb;
+
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+
+    EXPECT_EQ(OK,mST->updateTexImage());
+    EXPECT_EQ(OK,mST->updateTexImage());
+
+    ASSERT_EQ(OK, native_window_api_disconnect(mANW.get(),
+            NATIVE_WINDOW_API_EGL));
+    ASSERT_EQ(OK, native_window_api_connect(mANW.get(),
+            NATIVE_WINDOW_API_EGL));
+
+    ASSERT_EQ(OK, mST->setSynchronousMode(true));
+
+    EXPECT_EQ(OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+
+    // Will fail here if mCurrentTexture is not cleared properly
+    mFW->waitForFrame();
+    EXPECT_EQ(OK,mST->updateTexImage());
+
+    ASSERT_EQ(OK, native_window_api_disconnect(mANW.get(),
+            NATIVE_WINDOW_API_EGL));
+}
+
+TEST_F(SurfaceTextureGLTest, ScaleToWindowMode) {
+    ASSERT_EQ(OK, mST->setSynchronousMode(true));
+
+    ASSERT_EQ(OK, native_window_set_scaling_mode(mANW.get(),
+        NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW));
+
+    // The producer image size
+    ASSERT_EQ(OK, native_window_set_buffers_dimensions(mANW.get(), 512, 512));
+
+    // The consumer image size (16 x 9) ratio
+    mST->setDefaultBufferSize(1280, 720);
+
+    ASSERT_EQ(OK, native_window_api_connect(mANW.get(),
+            NATIVE_WINDOW_API_CPU));
+
+    ANativeWindowBuffer *anb;
+
+    android_native_rect_t odd = {23, 78, 123, 477};
+    ASSERT_EQ(OK, native_window_set_crop(mANW.get(), &odd));
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+    mFW->waitForFrame();
+    EXPECT_EQ(OK, mST->updateTexImage());
+    Rect r = mST->getCurrentCrop();
+    assertRectEq(Rect(23, 78, 123, 477), r);
+
+    ASSERT_EQ(OK, native_window_api_disconnect(mANW.get(),
+            NATIVE_WINDOW_API_CPU));
+}
+
+// This test ensures the scaling mode does the right thing
+// ie NATIVE_WINDOW_SCALING_MODE_CROP should crop
+// the image such that it has the same aspect ratio as the
+// default buffer size
+TEST_F(SurfaceTextureGLTest, CroppedScalingMode) {
+    ASSERT_EQ(OK, mST->setSynchronousMode(true));
+
+    ASSERT_EQ(OK, native_window_set_scaling_mode(mANW.get(),
+        NATIVE_WINDOW_SCALING_MODE_SCALE_CROP));
+
+    // The producer image size
+    ASSERT_EQ(OK, native_window_set_buffers_dimensions(mANW.get(), 512, 512));
+
+    // The consumer image size (16 x 9) ratio
+    mST->setDefaultBufferSize(1280, 720);
+
+    native_window_api_connect(mANW.get(), NATIVE_WINDOW_API_CPU);
+
+    ANativeWindowBuffer *anb;
+
+    // The crop is in the shape of (320, 180) === 16 x 9
+    android_native_rect_t standard = {10, 20, 330, 200};
+    ASSERT_EQ(OK, native_window_set_crop(mANW.get(), &standard));
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+    mFW->waitForFrame();
+    EXPECT_EQ(OK, mST->updateTexImage());
+    Rect r = mST->getCurrentCrop();
+    // crop should be the same as crop (same aspect ratio)
+    assertRectEq(Rect(10, 20, 330, 200), r);
+
+    // make this wider then desired aspect 239 x 100 (2.39:1)
+    android_native_rect_t wide = {20, 30, 259, 130};
+    ASSERT_EQ(OK, native_window_set_crop(mANW.get(), &wide));
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+    mFW->waitForFrame();
+    EXPECT_EQ(OK, mST->updateTexImage());
+    r = mST->getCurrentCrop();
+    // crop should be the same height, but have cropped left and right borders
+    // offset is 30.6 px L+, R-
+    assertRectEq(Rect(51, 30, 228, 130), r);
+
+    // This image is taller then desired aspect 400 x 300 (4:3)
+    android_native_rect_t narrow = {0, 0, 400, 300};
+    ASSERT_EQ(OK, native_window_set_crop(mANW.get(), &narrow));
+    EXPECT_EQ (OK, native_window_dequeue_buffer_and_wait(mANW.get(), &anb));
+    EXPECT_EQ(OK, mANW->queueBuffer(mANW.get(), anb, -1));
+    mFW->waitForFrame();
+    EXPECT_EQ(OK, mST->updateTexImage());
+    r = mST->getCurrentCrop();
+    // crop should be the same width, but have cropped top and bottom borders
+    // offset is 37.5 px
+    assertRectEq(Rect(0, 37, 400, 262), r);
+
+    native_window_api_disconnect(mANW.get(), NATIVE_WINDOW_API_CPU);
+}
+
 TEST_F(SurfaceTextureGLTest, AbandonUnblocksDequeueBuffer) {
     class ProducerThread : public Thread {
     public:
@@ -978,31 +1278,34 @@ TEST_F(SurfaceTextureGLTest, AbandonUnblocksDequeueBuffer) {
             ANativeWindowBuffer* anb;
 
             // Frame 1
-            if (mANW->dequeueBuffer(mANW.get(), &anb) != NO_ERROR) {
+            if (native_window_dequeue_buffer_and_wait(mANW.get(),
+                    &anb) != NO_ERROR) {
                 return false;
             }
             if (anb == NULL) {
                 return false;
             }
-            if (mANW->queueBuffer(mANW.get(), anb)
+            if (mANW->queueBuffer(mANW.get(), anb, -1)
                     != NO_ERROR) {
                 return false;
             }
 
             // Frame 2
-            if (mANW->dequeueBuffer(mANW.get(), &anb) != NO_ERROR) {
+            if (native_window_dequeue_buffer_and_wait(mANW.get(),
+                    &anb) != NO_ERROR) {
                 return false;
             }
             if (anb == NULL) {
                 return false;
             }
-            if (mANW->queueBuffer(mANW.get(), anb)
+            if (mANW->queueBuffer(mANW.get(), anb, -1)
                     != NO_ERROR) {
                 return false;
             }
 
             // Frame 3 - error expected
-            mDequeueError = mANW->dequeueBuffer(mANW.get(), &anb);
+            mDequeueError = native_window_dequeue_buffer_and_wait(mANW.get(),
+                &anb);
             return false;
         }
 
@@ -1017,16 +1320,14 @@ TEST_F(SurfaceTextureGLTest, AbandonUnblocksDequeueBuffer) {
         Mutex mMutex;
     };
 
-    sp<FrameWaiter> fw(new FrameWaiter);
-    mST->setFrameAvailableListener(fw);
     ASSERT_EQ(OK, mST->setSynchronousMode(true));
-    ASSERT_EQ(OK, mST->setBufferCountServer(2));
+    ASSERT_EQ(OK, mST->setDefaultMaxBufferCount(2));
 
     sp<Thread> pt(new ProducerThread(mANW));
     pt->run();
 
-    fw->waitForFrame();
-    fw->waitForFrame();
+    mFW->waitForFrame();
+    mFW->waitForFrame();
 
     // Sleep for 100ms to allow the producer thread's dequeueBuffer call to
     // block waiting for a buffer to become available.
@@ -1048,26 +1349,29 @@ TEST_F(SurfaceTextureGLTest, InvalidWidthOrHeightFails) {
 
     // make sure it works with small textures
     mST->setDefaultBufferSize(16, texHeight);
-    EXPECT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    EXPECT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     EXPECT_EQ(16, anb->width);
     EXPECT_EQ(texHeight, anb->height);
-    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb));
+    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb, -1));
     EXPECT_EQ(NO_ERROR, mST->updateTexImage());
 
     // make sure it works with GL_MAX_TEXTURE_SIZE
     mST->setDefaultBufferSize(maxTextureSize, texHeight);
-    EXPECT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    EXPECT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     EXPECT_EQ(maxTextureSize, anb->width);
     EXPECT_EQ(texHeight, anb->height);
-    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb));
+    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb, -1));
     EXPECT_EQ(NO_ERROR, mST->updateTexImage());
 
     // make sure it fails with GL_MAX_TEXTURE_SIZE+1
     mST->setDefaultBufferSize(maxTextureSize+1, texHeight);
-    EXPECT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    EXPECT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     EXPECT_EQ(maxTextureSize+1, anb->width);
     EXPECT_EQ(texHeight, anb->height);
-    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb));
+    EXPECT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), anb, -1));
     ASSERT_NE(NO_ERROR, mST->updateTexImage());
 }
 
@@ -1085,18 +1389,12 @@ protected:
     virtual void SetUp() {
         SurfaceTextureGLTest::SetUp();
 
-        EGLConfig myConfig = {0};
-        EGLint numConfigs = 0;
-        EXPECT_TRUE(eglChooseConfig(mEglDisplay, getConfigAttribs(), &myConfig,
-                1, &numConfigs));
-        ASSERT_EQ(EGL_SUCCESS, eglGetError());
-
-        mProducerEglSurface = eglCreateWindowSurface(mEglDisplay, myConfig,
+        mProducerEglSurface = eglCreateWindowSurface(mEglDisplay, mGlConfig,
                 mANW.get(), NULL);
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
         ASSERT_NE(EGL_NO_SURFACE, mProducerEglSurface);
 
-        mProducerEglContext = eglCreateContext(mEglDisplay, myConfig,
+        mProducerEglContext = eglCreateContext(mEglDisplay, mGlConfig,
                 EGL_NO_CONTEXT, getContextAttribs());
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
         ASSERT_NE(EGL_NO_CONTEXT, mProducerEglContext);
@@ -1116,11 +1414,67 @@ protected:
     EGLContext mProducerEglContext;
 };
 
+TEST_F(SurfaceTextureGLToGLTest, TransformHintGetsRespected) {
+    const uint32_t texWidth = 32;
+    const uint32_t texHeight = 64;
+
+    mST->setDefaultBufferSize(texWidth, texHeight);
+    mST->setTransformHint(NATIVE_WINDOW_TRANSFORM_ROT_90);
+
+    // This test requires 3 buffers to avoid deadlock because we're
+    // both producer and consumer, and only using one thread.
+    mST->setDefaultMaxBufferCount(3);
+
+    // Do the producer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
+            mProducerEglSurface, mProducerEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // Start a buffer with our chosen size and transform hint moving
+    // through the system.
+    glClear(GL_COLOR_BUFFER_BIT);  // give the driver something to do
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+    mST->updateTexImage();  // consume it
+    // Swap again.
+    glClear(GL_COLOR_BUFFER_BIT);
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+    mST->updateTexImage();
+
+    // The current buffer should either show the effects of the transform
+    // hint (in the form of an inverse transform), or show that the
+    // transform hint has been ignored.
+    sp<GraphicBuffer> buf = mST->getCurrentBuffer();
+    if (mST->getCurrentTransform() == NATIVE_WINDOW_TRANSFORM_ROT_270) {
+        ASSERT_EQ(texWidth, buf->getHeight());
+        ASSERT_EQ(texHeight, buf->getWidth());
+    } else {
+        ASSERT_EQ(texWidth, buf->getWidth());
+        ASSERT_EQ(texHeight, buf->getHeight());
+    }
+
+    // Reset the transform hint and confirm that it takes.
+    mST->setTransformHint(0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+    mST->updateTexImage();
+    glClear(GL_COLOR_BUFFER_BIT);
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+    mST->updateTexImage();
+
+    buf = mST->getCurrentBuffer();
+    ASSERT_EQ((uint32_t) 0, mST->getCurrentTransform());
+    ASSERT_EQ(texWidth, buf->getWidth());
+    ASSERT_EQ(texHeight, buf->getHeight());
+}
+
 TEST_F(SurfaceTextureGLToGLTest, TexturingFromGLFilledRGBABufferPow2) {
     const int texWidth = 64;
     const int texHeight = 64;
 
     mST->setDefaultBufferSize(texWidth, texHeight);
+
+    // This test requires 3 buffers to complete run on a single thread.
+    mST->setDefaultMaxBufferCount(3);
 
     // Do the producer side of things
     EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
@@ -1155,8 +1509,9 @@ TEST_F(SurfaceTextureGLToGLTest, TexturingFromGLFilledRGBABufferPow2) {
 
     glDisable(GL_SCISSOR_TEST);
 
-    mST->updateTexImage(); // Skip the first frame, which was empty
-    mST->updateTexImage();
+    // Skip the first frame, which was empty
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     glClearColor(0.2, 0.2, 0.2, 0.2);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1188,7 +1543,7 @@ TEST_F(SurfaceTextureGLToGLTest, TexturingFromGLFilledRGBABufferPow2) {
 }
 
 TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceUnrefsBuffers) {
-    sp<GraphicBuffer> buffers[3];
+    sp<GraphicBuffer> buffers[2];
 
     // This test requires async mode to run on a single thread.
     EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
@@ -1197,7 +1552,7 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceUnrefsBuffers) {
     EXPECT_TRUE(eglSwapInterval(mEglDisplay, 0));
     ASSERT_EQ(EGL_SUCCESS, eglGetError());
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         // Produce a frame
         EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
                 mProducerEglSurface, mProducerEglContext));
@@ -1209,7 +1564,8 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceUnrefsBuffers) {
         EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
                 mEglContext));
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
-        mST->updateTexImage();
+        mFW->waitForFrame();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         buffers[i] = mST->getCurrentBuffer();
     }
 
@@ -1220,19 +1576,15 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceUnrefsBuffers) {
     // Destroy the EGLSurface
     EXPECT_TRUE(eglDestroySurface(mEglDisplay, mProducerEglSurface));
     ASSERT_EQ(EGL_SUCCESS, eglGetError());
+    mProducerEglSurface = EGL_NO_SURFACE;
 
-    // Release the ref that the SurfaceTexture has on buffers[2].
-    mST->abandon();
-
+    // This test should have the only reference to buffer 0.
     EXPECT_EQ(1, buffers[0]->getStrongCount());
-    EXPECT_EQ(1, buffers[1]->getStrongCount());
 
-    // Depending on how lazily the GL driver dequeues buffers, we may end up
-    // with either two or three total buffers.  If there are three, make sure
-    // the last one was properly down-ref'd.
-    if (buffers[2] != buffers[0]) {
-        EXPECT_EQ(1, buffers[2]->getStrongCount());
-    }
+    // The SurfaceTexture should hold a single reference to buffer 1 in its
+    // mCurrentBuffer member.  All of the references in the slots should have
+    // been released.
+    EXPECT_EQ(2, buffers[1]->getStrongCount());
 }
 
 TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceAfterAbandonUnrefsBuffers) {
@@ -1258,6 +1610,7 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceAfterAbandonUnrefsBuffers) {
         EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
                 mEglContext));
         ASSERT_EQ(EGL_SUCCESS, eglGetError());
+        mFW->waitForFrame();
         ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         buffers[i] = mST->getCurrentBuffer();
     }
@@ -1273,6 +1626,7 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceAfterAbandonUnrefsBuffers) {
     // Destroy the EGLSurface.
     EXPECT_TRUE(eglDestroySurface(mEglDisplay, mProducerEglSurface));
     ASSERT_EQ(EGL_SUCCESS, eglGetError());
+    mProducerEglSurface = EGL_NO_SURFACE;
 
     EXPECT_EQ(1, buffers[0]->getStrongCount());
     EXPECT_EQ(1, buffers[1]->getStrongCount());
@@ -1287,7 +1641,7 @@ TEST_F(SurfaceTextureGLToGLTest, EglDestroySurfaceAfterAbandonUnrefsBuffers) {
 
 TEST_F(SurfaceTextureGLToGLTest, EglSurfaceDefaultsToSynchronousMode) {
     // This test requires 3 buffers to run on a single thread.
-    mST->setBufferCountServer(3);
+    mST->setDefaultMaxBufferCount(3);
 
     ASSERT_TRUE(mST->isSynchronousMode());
 
@@ -1308,6 +1662,185 @@ TEST_F(SurfaceTextureGLToGLTest, EglSurfaceDefaultsToSynchronousMode) {
     }
 
     ASSERT_TRUE(mST->isSynchronousMode());
+}
+
+TEST_F(SurfaceTextureGLToGLTest, TexturingFromUserSizedGLFilledBuffer) {
+    enum { texWidth = 64 };
+    enum { texHeight = 64 };
+
+    // This test requires 3 buffers to complete run on a single thread.
+    mST->setDefaultMaxBufferCount(3);
+
+    // Set the user buffer size.
+    native_window_set_buffers_user_dimensions(mANW.get(), texWidth, texHeight);
+
+    // Do the producer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
+            mProducerEglSurface, mProducerEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // This is needed to ensure we pick up a buffer of the correct size.
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    glClearColor(0.6, 0.6, 0.6, 0.6);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(4, 4, 1, 1);
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    // Do the consumer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    glDisable(GL_SCISSOR_TEST);
+
+    // Skip the first frame, which was empty
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glViewport(0, 0, texWidth, texHeight);
+    drawTexture();
+
+    EXPECT_TRUE(checkPixel( 0,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63, 63, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel( 0, 63, 153, 153, 153, 153));
+
+    EXPECT_TRUE(checkPixel( 4,  4, 255,   0,   0, 255));
+    EXPECT_TRUE(checkPixel( 5,  5, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel( 3,  3, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(45, 52, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(12, 36, 153, 153, 153, 153));
+}
+
+TEST_F(SurfaceTextureGLToGLTest, TexturingFromPreRotatedUserSizedGLFilledBuffer) {
+    enum { texWidth = 64 };
+    enum { texHeight = 16 };
+
+    // This test requires 3 buffers to complete run on a single thread.
+    mST->setDefaultMaxBufferCount(3);
+
+    // Set the transform hint.
+    mST->setTransformHint(NATIVE_WINDOW_TRANSFORM_ROT_90);
+
+    // Set the user buffer size.
+    native_window_set_buffers_user_dimensions(mANW.get(), texWidth, texHeight);
+
+    // Do the producer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
+            mProducerEglSurface, mProducerEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // This is needed to ensure we pick up a buffer of the correct size and the
+    // new rotation hint.
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    glClearColor(0.6, 0.6, 0.6, 0.6);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(24, 4, 1, 1);
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    // Do the consumer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    glDisable(GL_SCISSOR_TEST);
+
+    // Skip the first frame, which was empty
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glViewport(0, 0, texWidth, texHeight);
+    drawTexture();
+
+    EXPECT_TRUE(checkPixel( 0,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63, 15, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel( 0, 15, 153, 153, 153, 153));
+
+    EXPECT_TRUE(checkPixel(24,  4, 255,   0,   0, 255));
+    EXPECT_TRUE(checkPixel(25,  5, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(23,  3, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(45, 13, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(12,  8, 153, 153, 153, 153));
+}
+
+TEST_F(SurfaceTextureGLToGLTest, TexturingFromPreRotatedGLFilledBuffer) {
+    enum { texWidth = 64 };
+    enum { texHeight = 16 };
+
+    // This test requires 3 buffers to complete run on a single thread.
+    mST->setDefaultMaxBufferCount(3);
+
+    // Set the transform hint.
+    mST->setTransformHint(NATIVE_WINDOW_TRANSFORM_ROT_90);
+
+    // Set the default buffer size.
+    mST->setDefaultBufferSize(texWidth, texHeight);
+
+    // Do the producer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mProducerEglSurface,
+            mProducerEglSurface, mProducerEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // This is needed to ensure we pick up a buffer of the correct size and the
+    // new rotation hint.
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    glClearColor(0.6, 0.6, 0.6, 0.6);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(24, 4, 1, 1);
+    glClearColor(1.0, 0.0, 0.0, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    eglSwapBuffers(mEglDisplay, mProducerEglSurface);
+
+    // Do the consumer side of things
+    EXPECT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    glDisable(GL_SCISSOR_TEST);
+
+    // Skip the first frame, which was empty
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glViewport(0, 0, texWidth, texHeight);
+    drawTexture();
+
+    EXPECT_TRUE(checkPixel( 0,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63,  0, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(63, 15, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel( 0, 15, 153, 153, 153, 153));
+
+    EXPECT_TRUE(checkPixel(24,  4, 255,   0,   0, 255));
+    EXPECT_TRUE(checkPixel(25,  5, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(23,  3, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(45, 13, 153, 153, 153, 153));
+    EXPECT_TRUE(checkPixel(12,  8, 153, 153, 153, 153));
 }
 
 /*
@@ -1480,7 +2013,7 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
     runProducerThread(new PT());
 
     mFC->waitForFrame();
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
     mFC->finishFrame();
 
     // TODO: Add frame verification once RGB TEX_EXTERNAL_OES is supported!
@@ -1500,7 +2033,7 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
 
     mFC->waitForFrame();
     mFC->finishFrame();
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     // TODO: Add frame verification once RGB TEX_EXTERNAL_OES is supported!
 }
@@ -1526,7 +2059,7 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         mFC->waitForFrame();
         ALOGV("+updateTexImage");
-        mST->updateTexImage();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         ALOGV("-updateTexImage");
         mFC->finishFrame();
 
@@ -1556,7 +2089,7 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
         mFC->waitForFrame();
         mFC->finishFrame();
         ALOGV("+updateTexImage");
-        mST->updateTexImage();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         ALOGV("-updateTexImage");
 
         // TODO: Add frame verification once RGB TEX_EXTERNAL_OES is supported!
@@ -1581,7 +2114,7 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
     };
 
     ASSERT_EQ(OK, mST->setSynchronousMode(true));
-    ASSERT_EQ(OK, mST->setBufferCountServer(2));
+    ASSERT_EQ(OK, mST->setDefaultMaxBufferCount(2));
 
     runProducerThread(new PT());
 
@@ -1595,10 +2128,10 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
     // We must call updateTexImage to consume the first frame so that the
     // SurfaceTexture is able to reduce the buffer count to 2.  This is because
     // the GL driver may dequeue a buffer when the EGLSurface is created, and
-    // that happens before we call setBufferCountServer.  It's possible that the
+    // that happens before we call setDefaultMaxBufferCount.  It's possible that the
     // driver does not dequeue a buffer at EGLSurface creation time, so we
     // cannot rely on this to cause the second dequeueBuffer call to block.
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     mFC->waitForFrame();
     mFC->finishFrame();
@@ -1617,15 +2150,15 @@ TEST_F(SurfaceTextureGLThreadToGLTest,
     }
 
     // Consume the two pending buffers to unblock the producer thread.
-    mST->updateTexImage();
-    mST->updateTexImage();
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
+    ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
     // Consume the remaining buffers from the producer thread.
     for (int i = 0; i < NUM_ITERATIONS-3; i++) {
         mFC->waitForFrame();
         mFC->finishFrame();
         ALOGV("+updateTexImage");
-        mST->updateTexImage();
+        ASSERT_EQ(NO_ERROR, mST->updateTexImage());
         ALOGV("-updateTexImage");
     }
 }
@@ -1676,11 +2209,11 @@ TEST_F(SurfaceTextureFBOTest, BlitFromCpuFilledBufferToFbo) {
             GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
     android_native_buffer_t* anb;
-    ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+    ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+            &anb));
     ASSERT_TRUE(anb != NULL);
 
     sp<GraphicBuffer> buf(new GraphicBuffer(anb, false));
-    ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(), buf->getNativeBuffer()));
 
     // Fill the buffer with green
     uint8_t* img = NULL;
@@ -1688,7 +2221,8 @@ TEST_F(SurfaceTextureFBOTest, BlitFromCpuFilledBufferToFbo) {
     fillRGBA8BufferSolid(img, texWidth, texHeight, buf->getStride(), 0, 255,
             0, 255);
     buf->unlock();
-    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer()));
+    ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(), buf->getNativeBuffer(),
+            -1));
 
     ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
@@ -1699,12 +2233,11 @@ TEST_F(SurfaceTextureFBOTest, BlitFromCpuFilledBufferToFbo) {
     for (int i = 0; i < 4; i++) {
         SCOPED_TRACE(String8::format("frame %d", i).string());
 
-        ASSERT_EQ(NO_ERROR, mANW->dequeueBuffer(mANW.get(), &anb));
+        ASSERT_EQ(NO_ERROR, native_window_dequeue_buffer_and_wait(mANW.get(),
+                &anb));
         ASSERT_TRUE(anb != NULL);
 
         buf = new GraphicBuffer(anb, false);
-        ASSERT_EQ(NO_ERROR, mANW->lockBuffer(mANW.get(),
-                buf->getNativeBuffer()));
 
         // Fill the buffer with red
         ASSERT_EQ(NO_ERROR, buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN,
@@ -1713,7 +2246,7 @@ TEST_F(SurfaceTextureFBOTest, BlitFromCpuFilledBufferToFbo) {
                 0, 255);
         ASSERT_EQ(NO_ERROR, buf->unlock());
         ASSERT_EQ(NO_ERROR, mANW->queueBuffer(mANW.get(),
-                buf->getNativeBuffer()));
+                buf->getNativeBuffer(), -1));
 
         ASSERT_EQ(NO_ERROR, mST->updateTexImage());
 
@@ -1725,6 +2258,426 @@ TEST_F(SurfaceTextureFBOTest, BlitFromCpuFilledBufferToFbo) {
     glBindFramebuffer(GL_FRAMEBUFFER, mFbo);
 
     EXPECT_TRUE(checkPixel( 24, 39, 0, 255, 0, 255));
+}
+
+class SurfaceTextureMultiContextGLTest : public SurfaceTextureGLTest {
+protected:
+    enum { SECOND_TEX_ID = 123 };
+    enum { THIRD_TEX_ID = 456 };
+
+    SurfaceTextureMultiContextGLTest():
+            mSecondEglContext(EGL_NO_CONTEXT) {
+    }
+
+    virtual void SetUp() {
+        SurfaceTextureGLTest::SetUp();
+
+        // Set up the secondary context and texture renderer.
+        mSecondEglContext = eglCreateContext(mEglDisplay, mGlConfig,
+                EGL_NO_CONTEXT, getContextAttribs());
+        ASSERT_EQ(EGL_SUCCESS, eglGetError());
+        ASSERT_NE(EGL_NO_CONTEXT, mSecondEglContext);
+
+        ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+                mSecondEglContext));
+        ASSERT_EQ(EGL_SUCCESS, eglGetError());
+        mSecondTextureRenderer = new TextureRenderer(SECOND_TEX_ID, mST);
+        ASSERT_NO_FATAL_FAILURE(mSecondTextureRenderer->SetUp());
+
+        // Set up the tertiary context and texture renderer.
+        mThirdEglContext = eglCreateContext(mEglDisplay, mGlConfig,
+                EGL_NO_CONTEXT, getContextAttribs());
+        ASSERT_EQ(EGL_SUCCESS, eglGetError());
+        ASSERT_NE(EGL_NO_CONTEXT, mThirdEglContext);
+
+        ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+                mThirdEglContext));
+        ASSERT_EQ(EGL_SUCCESS, eglGetError());
+        mThirdTextureRenderer = new TextureRenderer(THIRD_TEX_ID, mST);
+        ASSERT_NO_FATAL_FAILURE(mThirdTextureRenderer->SetUp());
+
+        // Switch back to the primary context to start the tests.
+        ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+                mEglContext));
+    }
+
+    virtual void TearDown() {
+        if (mThirdEglContext != EGL_NO_CONTEXT) {
+            eglDestroyContext(mEglDisplay, mThirdEglContext);
+        }
+        if (mSecondEglContext != EGL_NO_CONTEXT) {
+            eglDestroyContext(mEglDisplay, mSecondEglContext);
+        }
+        SurfaceTextureGLTest::TearDown();
+    }
+
+    EGLContext mSecondEglContext;
+    sp<TextureRenderer> mSecondTextureRenderer;
+
+    EGLContext mThirdEglContext;
+    sp<TextureRenderer> mThirdTextureRenderer;
+};
+
+TEST_F(SurfaceTextureMultiContextGLTest, UpdateFromMultipleContextsFails) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Attempt to latch the texture on the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+    ASSERT_EQ(INVALID_OPERATION, mST->updateTexImage());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, DetachFromContextSucceeds) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Check that the GL texture was deleted.
+    EXPECT_EQ(GL_FALSE, glIsTexture(TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        DetachFromContextSucceedsAfterProducerDisconnect) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    native_window_api_disconnect(mANW.get(), NATIVE_WINDOW_API_CPU);
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Check that the GL texture was deleted.
+    EXPECT_EQ(GL_FALSE, glIsTexture(TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, DetachFromContextFailsWhenAbandoned) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Attempt to detach from the primary context.
+    mST->abandon();
+    ASSERT_EQ(NO_INIT, mST->detachFromContext());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, DetachFromContextFailsWhenDetached) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attempt to detach from the primary context again.
+    ASSERT_EQ(INVALID_OPERATION, mST->detachFromContext());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, DetachFromContextFailsWithNoDisplay) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Make there be no current display.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE,
+            EGL_NO_CONTEXT));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // Attempt to detach from the primary context.
+    ASSERT_EQ(INVALID_OPERATION, mST->detachFromContext());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, DetachFromContextFailsWithNoContext) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Make current context be incorrect.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // Attempt to detach from the primary context.
+    ASSERT_EQ(INVALID_OPERATION, mST->detachFromContext());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, UpdateTexImageFailsWhenDetached) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attempt to latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(INVALID_OPERATION, mST->updateTexImage());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, AttachToContextSucceeds) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Verify that the texture object was created and bound.
+    GLint texBinding = -1;
+    glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &texBinding);
+    EXPECT_EQ(SECOND_TEX_ID, texBinding);
+
+    // Try to use the texture from the secondary context.
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 1, 1);
+    mSecondTextureRenderer->drawTexture();
+    ASSERT_TRUE(checkPixel( 0,  0,  35,  35,  35,  35));
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        AttachToContextSucceedsAfterProducerDisconnect) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    native_window_api_disconnect(mANW.get(), NATIVE_WINDOW_API_CPU);
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Verify that the texture object was created and bound.
+    GLint texBinding = -1;
+    glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &texBinding);
+    EXPECT_EQ(SECOND_TEX_ID, texBinding);
+
+    // Try to use the texture from the secondary context.
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 1, 1);
+    mSecondTextureRenderer->drawTexture();
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    ASSERT_TRUE(checkPixel( 0,  0,  35,  35,  35,  35));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        AttachToContextSucceedsBeforeUpdateTexImage) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Detach from the primary context.
+    native_window_api_disconnect(mANW.get(), NATIVE_WINDOW_API_CPU);
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Verify that the texture object was created and bound.
+    GLint texBinding = -1;
+    glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &texBinding);
+    EXPECT_EQ(SECOND_TEX_ID, texBinding);
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Try to use the texture from the secondary context.
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 1, 1);
+    mSecondTextureRenderer->drawTexture();
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    ASSERT_TRUE(checkPixel( 0,  0,  35,  35,  35,  35));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, AttachToContextFailsWhenAbandoned) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attempt to attach to the secondary context.
+    mST->abandon();
+
+    // Attempt to attach to the primary context.
+    ASSERT_EQ(NO_INIT, mST->attachToContext(SECOND_TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, AttachToContextFailsWhenAttached) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Attempt to attach to the primary context.
+    ASSERT_EQ(INVALID_OPERATION, mST->attachToContext(SECOND_TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        AttachToContextFailsWhenAttachedBeforeUpdateTexImage) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Attempt to attach to the primary context.
+    ASSERT_EQ(INVALID_OPERATION, mST->attachToContext(SECOND_TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, AttachToContextFailsWithNoDisplay) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Make there be no current display.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE,
+            EGL_NO_CONTEXT));
+    ASSERT_EQ(EGL_SUCCESS, eglGetError());
+
+    // Attempt to attach with no context current.
+    ASSERT_EQ(INVALID_OPERATION, mST->attachToContext(SECOND_TEX_ID));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest, AttachToContextSucceedsTwice) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Latch the texture contents on the primary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Detach from the secondary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the tertiary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mThirdEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(THIRD_TEX_ID));
+
+    // Verify that the texture object was created and bound.
+    GLint texBinding = -1;
+    glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &texBinding);
+    EXPECT_EQ(THIRD_TEX_ID, texBinding);
+
+    // Try to use the texture from the tertiary context.
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 1, 1);
+    mThirdTextureRenderer->drawTexture();
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    ASSERT_TRUE(checkPixel( 0,  0,  35,  35,  35,  35));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        AttachToContextSucceedsTwiceBeforeUpdateTexImage) {
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Detach from the primary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the secondary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Detach from the secondary context.
+    ASSERT_EQ(OK, mST->detachFromContext());
+
+    // Attach to the tertiary context.
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mThirdEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(THIRD_TEX_ID));
+
+    // Verify that the texture object was created and bound.
+    GLint texBinding = -1;
+    glGetIntegerv(GL_TEXTURE_BINDING_EXTERNAL_OES, &texBinding);
+    EXPECT_EQ(THIRD_TEX_ID, texBinding);
+
+    // Latch the texture contents on the tertiary context.
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // Try to use the texture from the tertiary context.
+    glClearColor(0.2, 0.2, 0.2, 0.2);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glViewport(0, 0, 1, 1);
+    mThirdTextureRenderer->drawTexture();
+    ASSERT_EQ(GLenum(GL_NO_ERROR), glGetError());
+    ASSERT_TRUE(checkPixel( 0,  0,  35,  35,  35,  35));
+}
+
+TEST_F(SurfaceTextureMultiContextGLTest,
+        UpdateTexImageSucceedsForBufferConsumedBeforeDetach) {
+    ASSERT_EQ(NO_ERROR, mST->setSynchronousMode(true));
+    ASSERT_EQ(NO_ERROR, mST->setDefaultMaxBufferCount(2));
+
+    // produce two frames and consume them both on the primary context
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
+
+    // produce one more frame
+    ASSERT_NO_FATAL_FAILURE(produceOneRGBA8Frame(mANW));
+
+    // Detach from the primary context and attach to the secondary context
+    ASSERT_EQ(OK, mST->detachFromContext());
+    ASSERT_TRUE(eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface,
+            mSecondEglContext));
+    ASSERT_EQ(OK, mST->attachToContext(SECOND_TEX_ID));
+
+    // Consume final frame on secondary context
+    mFW->waitForFrame();
+    ASSERT_EQ(OK, mST->updateTexImage());
 }
 
 } // namespace android

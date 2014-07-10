@@ -40,13 +40,15 @@ class IDisplayEventConnection;
 class DisplayEventReceiver {
 public:
     enum {
-        DISPLAY_EVENT_VSYNC = 'vsyn'
+        DISPLAY_EVENT_VSYNC = 'vsyn',
+        DISPLAY_EVENT_HOTPLUG = 'plug'
     };
 
     struct Event {
 
         struct Header {
             uint32_t type;
+            uint32_t id;
             nsecs_t timestamp;
         };
 
@@ -54,16 +56,23 @@ public:
             uint32_t count;
         };
 
+        struct Hotplug {
+            bool connected;
+        };
+
         Header header;
         union {
             VSync vsync;
+            Hotplug hotplug;
         };
     };
 
 public:
     /*
      * DisplayEventReceiver creates and registers an event connection with
-     * SurfaceFlinger. Events start being delivered immediately.
+     * SurfaceFlinger. VSync events are disabled by default. Call setVSyncRate
+     * or requestNextVsync to receive them.
+     * Other events start being delivered immediately.
      */
     DisplayEventReceiver();
 
@@ -95,6 +104,13 @@ public:
     ssize_t getEvents(Event* events, size_t count);
     static ssize_t getEvents(const sp<BitTube>& dataChannel,
             Event* events, size_t count);
+
+    /*
+     * sendEvents write events to the queue and returns how many events were
+     * written.
+     */
+    static ssize_t sendEvents(const sp<BitTube>& dataChannel,
+            Event const* events, size_t count);
 
     /*
      * setVsyncRate() sets the Event::VSync delivery rate. A value of

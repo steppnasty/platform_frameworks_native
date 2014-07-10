@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_SF_SURFACE_H
-#define ANDROID_SF_SURFACE_H
+#ifndef ANDROID_GUI_SURFACE_H
+#define ANDROID_GUI_SURFACE_H
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -26,10 +26,8 @@
 
 #include <ui/PixelFormat.h>
 #include <ui/Region.h>
-#include <ui/egl/android_natives.h>
 
 #include <gui/SurfaceTextureClient.h>
-
 #include <gui/ISurface.h>
 #include <gui/ISurfaceComposerClient.h>
 
@@ -67,15 +65,12 @@ public:
     status_t    setPosition(int32_t x, int32_t y);
     status_t    setSize(uint32_t w, uint32_t h);
     status_t    hide();
-    status_t    show(int32_t layer = -1);
-    status_t    freeze();
-    status_t    unfreeze();
+    status_t    show();
     status_t    setFlags(uint32_t flags, uint32_t mask);
     status_t    setTransparentRegionHint(const Region& transparent);
     status_t    setAlpha(float alpha=1.0f);
     status_t    setMatrix(float dsdx, float dtdx, float dsdy, float dtdy);
     status_t    setCrop(const Rect& crop);
-    status_t    setFreezeTint(uint32_t tint);
 
     static status_t writeSurfaceToParcel(
             const sp<SurfaceControl>& control, Parcel* parcel);
@@ -176,4 +171,4 @@ private:
 
 }; // namespace android
 
-#endif // ANDROID_SF_SURFACE_H
+#endif // ANDROID_GUI_SURFACE_H

@@ -22,8 +22,8 @@
 
 #include <binder/Parcel.h>
 
-#include <gui/ISurfaceTexture.h>
 #include <gui/ISurface.h>
+#include <gui/ISurfaceTexture.h>
 
 namespace android {
 

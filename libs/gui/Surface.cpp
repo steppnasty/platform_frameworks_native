@@ -21,14 +21,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <android/native_window.h>
+
 #include <utils/CallStack.h>
 #include <utils/Errors.h>
 #include <utils/Log.h>
 #include <utils/threads.h>
 
 #include <binder/IPCThreadState.h>
-
-#include <gui/SurfaceTextureClient.h>
 
 #include <ui/DisplayInfo.h>
 #include <ui/GraphicBuffer.h>
@@ -38,7 +38,7 @@
 #include <gui/ISurfaceComposer.h>
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
-#include <qcom_ui.h>
+#include <gui/SurfaceTextureClient.h>
 
 namespace android {
 
@@ -98,7 +98,6 @@ status_t SurfaceControl::setLayerStack(int32_t layerStack) {
     const sp<SurfaceComposerClient>& client(mClient);
     return client->setLayerStack(mToken, layerStack);
 }
-
 status_t SurfaceControl::setLayer(int32_t layer) {
     status_t err = validate();
     if (err < 0) return err;
@@ -123,23 +122,11 @@ status_t SurfaceControl::hide() {
     const sp<SurfaceComposerClient>& client(mClient);
     return client->hide(mToken);
 }
-status_t SurfaceControl::show(int32_t layer) {
+status_t SurfaceControl::show() {
     status_t err = validate();
     if (err < 0) return err;
     const sp<SurfaceComposerClient>& client(mClient);
-    return client->show(mToken, layer);
-}
-status_t SurfaceControl::freeze() {
-    status_t err = validate();
-    if (err < 0) return err;
-    const sp<SurfaceComposerClient>& client(mClient);
-    return client->freeze(mToken);
-}
-status_t SurfaceControl::unfreeze() {
-    status_t err = validate();
-    if (err < 0) return err;
-    const sp<SurfaceComposerClient>& client(mClient);
-    return client->unfreeze(mToken);
+    return client->show(mToken);
 }
 status_t SurfaceControl::setFlags(uint32_t flags, uint32_t mask) {
     status_t err = validate();
@@ -170,13 +157,6 @@ status_t SurfaceControl::setCrop(const Rect& crop) {
     if (err < 0) return err;
     const sp<SurfaceComposerClient>& client(mClient);
     return client->setCrop(mToken, crop);
-}
-
-status_t SurfaceControl::setFreezeTint(uint32_t tint) {
-    status_t err = validate();
-    if (err < 0) return err;
-    const sp<SurfaceComposerClient>& client(mClient);
-    return client->setFreezeTint(mToken, tint);
 }
 
 status_t SurfaceControl::validate() const
@@ -325,8 +305,11 @@ void Surface::init(const sp<ISurfaceTexture>& surfaceTexture)
             setUsage(GraphicBuffer::USAGE_HW_RENDER);
         }
 
+        // TODO: the display metrics should come from the display manager
         DisplayInfo dinfo;
-        SurfaceComposerClient::getDisplayInfo(0, &dinfo);
+        sp<IBinder> display = SurfaceComposerClient::getBuiltInDisplay(
+                ISurfaceComposer::eDisplayIdMain);
+        SurfaceComposerClient::getDisplayInfo(display, &dinfo);
         const_cast<float&>(ANativeWindow::xdpi) = dinfo.xdpi;
         const_cast<float&>(ANativeWindow::ydpi) = dinfo.ydpi;
         const_cast<uint32_t&>(ANativeWindow::flags) = 0;

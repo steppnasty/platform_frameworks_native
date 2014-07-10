@@ -16,9 +16,10 @@
 
 #include <stdint.h>
 #include <sys/types.h>
+#include <sys/socket.h>
 
-#include <unistd.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include <utils/Errors.h>
 
@@ -29,18 +30,28 @@
 namespace android {
 // ----------------------------------------------------------------------------
 
+// Socket buffer size.  The default is typically about 128KB, which is much larger than
+// we really need.  So we make it smaller.
+static const size_t SOCKET_BUFFER_SIZE = 4 * 1024;
+
+
 BitTube::BitTube()
     : mSendFd(-1), mReceiveFd(-1)
 {
-    int fds[2];
-    if (pipe(fds) == 0) {
-        mReceiveFd = fds[0];
-        mSendFd = fds[1];
-        fcntl(mReceiveFd, F_SETFL, O_NONBLOCK);
-        fcntl(mSendFd, F_SETFL, O_NONBLOCK);
+    int sockets[2];
+    if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, sockets) == 0) {
+        int size = SOCKET_BUFFER_SIZE;
+        setsockopt(sockets[0], SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
+        setsockopt(sockets[0], SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
+        setsockopt(sockets[1], SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
+        setsockopt(sockets[1], SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
+        fcntl(sockets[0], F_SETFL, O_NONBLOCK);
+        fcntl(sockets[1], F_SETFL, O_NONBLOCK);
+        mReceiveFd = sockets[0];
+        mSendFd = sockets[1];
     } else {
         mReceiveFd = -errno;
-        LOGE("BitTube: pipe creation failed (%s)", strerror(-mReceiveFd));
+        ALOGE("BitTube: pipe creation failed (%s)", strerror(-mReceiveFd));
     }
 }
 
@@ -49,10 +60,13 @@ BitTube::BitTube(const Parcel& data)
 {
     mReceiveFd = dup(data.readFileDescriptor());
     if (mReceiveFd >= 0) {
+        int size = SOCKET_BUFFER_SIZE;
+        setsockopt(mReceiveFd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
+        setsockopt(mReceiveFd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
         fcntl(mReceiveFd, F_SETFL, O_NONBLOCK);
     } else {
         mReceiveFd = -errno;
-        LOGE("BitTube(Parcel): can't dup filedescriptor (%s)",
+        ALOGE("BitTube(Parcel): can't dup filedescriptor (%s)",
                 strerror(-mReceiveFd));
     }
 }
@@ -83,19 +97,25 @@ ssize_t BitTube::write(void const* vaddr, size_t size)
 {
     ssize_t err, len;
     do {
-        len = ::write(mSendFd, vaddr, size);
+        len = ::send(mSendFd, vaddr, size, MSG_DONTWAIT | MSG_NOSIGNAL);
         err = len < 0 ? errno : 0;
     } while (err == EINTR);
     return err == 0 ? len : -err;
+
 }
 
 ssize_t BitTube::read(void* vaddr, size_t size)
 {
     ssize_t err, len;
     do {
-        len = ::read(mReceiveFd, vaddr, size);
+        len = ::recv(mReceiveFd, vaddr, size, MSG_DONTWAIT);
         err = len < 0 ? errno : 0;
     } while (err == EINTR);
+    if (err == EAGAIN || err == EWOULDBLOCK) {
+        // EAGAIN means that we have non-blocking I/O but there was
+        // no data to be read. Nothing the client should care about.
+        return 0;
+    }
     return err == 0 ? len : -err;
 }
 
@@ -108,6 +128,45 @@ status_t BitTube::writeToParcel(Parcel* reply) const
     close(mReceiveFd);
     mReceiveFd = -1;
     return result;
+}
+
+
+ssize_t BitTube::sendObjects(const sp<BitTube>& tube,
+        void const* events, size_t count, size_t objSize)
+{
+    ssize_t numObjects = 0;
+    for (size_t i=0 ; i<count ; i++) {
+        const char* vaddr = reinterpret_cast<const char*>(events) + objSize * i;
+        ssize_t size = tube->write(vaddr, objSize);
+        if (size < 0) {
+            // error occurred
+            return size;
+        } else if (size == 0) {
+            // no more space
+            break;
+        }
+        numObjects++;
+    }
+    return numObjects;
+}
+
+ssize_t BitTube::recvObjects(const sp<BitTube>& tube,
+        void* events, size_t count, size_t objSize)
+{
+    ssize_t numObjects = 0;
+    for (size_t i=0 ; i<count ; i++) {
+        char* vaddr = reinterpret_cast<char*>(events) + objSize * i;
+        ssize_t size = tube->read(vaddr, objSize);
+        if (size < 0) {
+            // error occurred
+            return size;
+        } else if (size == 0) {
+            // no more messages
+            break;
+        }
+        numObjects++;
+    }
+    return numObjects;
 }
 
 // ----------------------------------------------------------------------------

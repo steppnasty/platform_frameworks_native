@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_SF_IGRAPHIC_BUFFER_ALLOC_H
-#define ANDROID_SF_IGRAPHIC_BUFFER_ALLOC_H
+#ifndef ANDROID_GUI_IGRAPHIC_BUFFER_ALLOC_H
+#define ANDROID_GUI_IGRAPHIC_BUFFER_ALLOC_H
 
 #include <stdint.h>
 #include <sys/types.h>
 
-#include <utils/RefBase.h>
-
 #include <binder/IInterface.h>
+#include <ui/PixelFormat.h>
+#include <utils/RefBase.h>
 
 namespace android {
 // ----------------------------------------------------------------------------
@@ -38,20 +38,6 @@ public:
      */
     virtual sp<GraphicBuffer> createGraphicBuffer(uint32_t w, uint32_t h,
             PixelFormat format, uint32_t usage, status_t* error) = 0;
-
-#ifdef QCOMHW
-    /* Free all but one of the GraphicBuffer objects that the server is
-     * currently referencing. If bufIndex is not a valid index of the buffers
-     * the server is referencing, then all buffers are freed.
-     */
-    virtual void freeAllGraphicBuffersExcept(int bufIndex) = 0;
-
-    /* Free the GraphicBuffer at the specified index */
-    virtual void freeGraphicBufferAtIndex(int bufIndex) = 0;
-
-    /* Sets the required size of the Graphic Buffers */
-    virtual void setGraphicBufferSize(int size) = 0;
-#endif
 };
 
 // ----------------------------------------------------------------------------
@@ -69,4 +55,4 @@ public:
 
 }; // namespace android
 
-#endif // ANDROID_SF_IGRAPHIC_BUFFER_ALLOC_H
+#endif // ANDROID_GUI_IGRAPHIC_BUFFER_ALLOC_H
