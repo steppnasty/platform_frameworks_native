@@ -35,9 +35,11 @@
 
 #include <gui/ISensorServer.h>
 #include <gui/ISensorEventConnection.h>
+#include <gui/SensorEventQueue.h>
 
 #include <hardware/sensors.h>
 
+#include "BatteryService.h"
 #include "CorrectedGyroSensor.h"
 #include "GravitySensor.h"
 #include "LinearAccelerationSensor.h"
@@ -116,17 +118,16 @@ void SensorService::onFirstRef()
                 // these are optional
                 registerVirtualSensor( new OrientationSensor() );
                 registerVirtualSensor( new CorrectedGyroSensor(list, count) );
-
-                // virtual debugging sensors...
-                char value[PROPERTY_VALUE_MAX];
-                property_get("debug.sensors", value, "0");
-                if (atoi(value)) {
-                    registerVirtualSensor( new GyroDriftSensor() );
-                }
             }
 
             // build the sensor list returned to users
             mUserSensorList = mSensorList;
+
+            if (hasGyro) {
+                // virtual debugging sensors are not added to mUserSensorList
+                registerVirtualSensor( new GyroDriftSensor() );
+            }
+
             if (hasGyro &&
                     (virtualSensorsNeeds & (1<<SENSOR_TYPE_ROTATION_VECTOR))) {
                 // if we have the fancy sensor fusion, and it's not provided by the
@@ -134,6 +135,22 @@ void SensorService::onFirstRef()
                 // HAL supplied one form the user list.
                 if (orientationIndex >= 0) {
                     mUserSensorList.removeItemsAt(orientationIndex);
+                }
+            }
+
+            // debugging sensor list
+            for (size_t i=0 ; i<mSensorList.size() ; i++) {
+                switch (mSensorList[i].getType()) {
+                    case SENSOR_TYPE_GRAVITY:
+                    case SENSOR_TYPE_LINEAR_ACCELERATION:
+                    case SENSOR_TYPE_ROTATION_VECTOR:
+                        if (strstr(mSensorList[i].getVendor().string(), "Google")) {
+                            mUserSensorListDebug.add(mSensorList[i]);
+                        }
+                        break;
+                    default:
+                        mUserSensorListDebug.add(mSensorList[i]);
+                        break;
                 }
             }
 
@@ -224,9 +241,10 @@ bool SensorService::threadLoop()
 {
     ALOGD("nuSensorService thread starting...");
 
-    const size_t numEventMax = 16 * (1 + mVirtualSensorList.size());
-    sensors_event_t buffer[numEventMax];
-    sensors_event_t scratch[numEventMax];
+    const size_t numEventMax = 16;
+    const size_t minBufferSize = numEventMax + numEventMax * mVirtualSensorList.size();
+    sensors_event_t buffer[minBufferSize];
+    sensors_event_t scratch[minBufferSize];
     SensorDevice& device(SensorDevice::getInstance());
     const size_t vcount = mVirtualSensorList.size();
 
@@ -254,10 +272,17 @@ bool SensorService::threadLoop()
                         fusion.process(event[i]);
                     }
                 }
-                for (size_t i=0 ; i<size_t(count) ; i++) {
+                for (size_t i=0 ; i<size_t(count) && k<minBufferSize ; i++) {
                     for (size_t j=0 ; j<activeVirtualSensorCount ; j++) {
+                        if (count + k >= minBufferSize) {
+                            ALOGE("buffer too small to hold all events: "
+                                    "count=%u, k=%u, size=%u",
+                                    count, k, minBufferSize);
+                            break;
+                        }
                         sensors_event_t out;
-                        if (virtualSensors.valueAt(j)->process(&out, event[i])) {
+                        SensorInterface* si = virtualSensors.valueAt(j);
+                        if (si->process(&out, event[i])) {
                             buffer[count + k] = out;
                             k++;
                         }
@@ -315,7 +340,7 @@ void SensorService::sortEventBuffer(sensors_event_t* buffer, size_t count)
         static int cmp(void const* lhs, void const* rhs) {
             sensors_event_t const* l = static_cast<sensors_event_t const*>(lhs);
             sensors_event_t const* r = static_cast<sensors_event_t const*>(rhs);
-            return r->timestamp - l->timestamp;
+            return l->timestamp - r->timestamp;
         }
     };
     qsort(buffer, count, sizeof(sensors_event_t), compar::cmp);
@@ -349,12 +374,18 @@ String8 SensorService::getSensorName(int handle) const {
 
 Vector<Sensor> SensorService::getSensorList()
 {
+    char value[PROPERTY_VALUE_MAX];
+    property_get("debug.sensors", value, "0");
+    if (atoi(value)) {
+        return mUserSensorListDebug;
+    }
     return mUserSensorList;
 }
 
 sp<ISensorEventConnection> SensorService::createSensorEventConnection()
 {
-    sp<SensorEventConnection> result(new SensorEventConnection(this));
+    uid_t uid = IPCThreadState::self()->getCallingUid();
+    sp<SensorEventConnection> result(new SensorEventConnection(this, uid));
     return result;
 }
 
@@ -391,6 +422,7 @@ void SensorService::cleanupConnection(SensorEventConnection* c)
         }
     }
     mActiveConnections.remove(connection);
+    BatteryService::cleanup(c->getUid());
 }
 
 status_t SensorService::enable(const sp<SensorEventConnection>& connection,
@@ -428,11 +460,15 @@ status_t SensorService::enable(const sp<SensorEventConnection>& connection,
         if (err == NO_ERROR) {
             // connection now active
             if (connection->addSensor(handle)) {
+                BatteryService::enableSensor(connection->getUid(), handle);
                 // the sensor was added (which means it wasn't already there)
                 // so, see if this connection becomes active
                 if (mActiveConnections.indexOf(connection) < 0) {
                     mActiveConnections.add(connection);
                 }
+            } else {
+                ALOGW("sensor %08x already enabled in connection %p (ignoring)",
+                        handle, connection.get());
             }
         }
     }
@@ -450,7 +486,9 @@ status_t SensorService::disable(const sp<SensorEventConnection>& connection,
     SensorRecord* rec = mActiveSensors.valueFor(handle);
     if (rec) {
         // see if this connection becomes inactive
-        connection->removeSensor(handle);
+        if (connection->removeSensor(handle)) {
+            BatteryService::disableSensor(connection->getUid(), handle);
+        }
         if (connection->hasAnySensor() == false) {
             mActiveConnections.remove(connection);
         }
@@ -521,8 +559,8 @@ bool SensorService::SensorRecord::removeConnection(
 // ---------------------------------------------------------------------------
 
 SensorService::SensorEventConnection::SensorEventConnection(
-        const sp<SensorService>& service)
-    : mService(service), mChannel(new SensorChannel())
+        const sp<SensorService>& service, uid_t uid)
+    : mService(service), mChannel(new BitTube()), mUid(uid)
 {
 }
 
@@ -538,7 +576,7 @@ void SensorService::SensorEventConnection::onFirstRef()
 
 bool SensorService::SensorEventConnection::addSensor(int32_t handle) {
     Mutex::Autolock _l(mConnectionLock);
-    if (mSensorInfo.indexOf(handle) <= 0) {
+    if (mSensorInfo.indexOf(handle) < 0) {
         mSensorInfo.add(handle);
         return true;
     }
@@ -587,10 +625,9 @@ status_t SensorService::SensorEventConnection::sendEvents(
         count = numEvents;
     }
 
-    if (count == 0)
-        return 0;
-
-    ssize_t size = mChannel->write(scratch, count*sizeof(sensors_event_t));
+    // NOTE: ASensorEvent and sensors_event_t are the same type
+    ssize_t size = SensorEventQueue::write(mChannel,
+            reinterpret_cast<ASensorEvent const*>(scratch), count);
     if (size == -EAGAIN) {
         // the destination doesn't accept events anymore, it's probably
         // full. For now, we just drop the events on the floor.
@@ -598,13 +635,10 @@ status_t SensorService::SensorEventConnection::sendEvents(
         return size;
     }
 
-    //ALOGE_IF(size<0, "dropping %d events on the floor (%s)",
-    //        count, strerror(-size));
-
     return size < 0 ? status_t(size) : status_t(NO_ERROR);
 }
 
-sp<SensorChannel> SensorService::SensorEventConnection::getSensorChannel() const
+sp<BitTube> SensorService::SensorEventConnection::getSensorChannel() const
 {
     return mChannel;
 }

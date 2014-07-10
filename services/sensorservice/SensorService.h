@@ -29,7 +29,7 @@
 #include <binder/BinderService.h>
 
 #include <gui/Sensor.h>
-#include <gui/SensorChannel.h>
+#include <gui/BitTube.h>
 #include <gui/ISensorServer.h>
 #include <gui/ISensorEventConnection.h>
 
@@ -71,19 +71,20 @@ class SensorService :
     class SensorEventConnection : public BnSensorEventConnection {
         virtual ~SensorEventConnection();
         virtual void onFirstRef();
-        virtual sp<SensorChannel> getSensorChannel() const;
+        virtual sp<BitTube> getSensorChannel() const;
         virtual status_t enableDisable(int handle, bool enabled);
         virtual status_t setEventRate(int handle, nsecs_t ns);
 
         sp<SensorService> const mService;
-        sp<SensorChannel> const mChannel;
+        sp<BitTube> const mChannel;
+        uid_t mUid;
         mutable Mutex mConnectionLock;
 
         // protected by SensorService::mLock
         SortedVector<int> mSensorInfo;
 
     public:
-        SensorEventConnection(const sp<SensorService>& service);
+        SensorEventConnection(const sp<SensorService>& service, uid_t uid);
 
         status_t sendEvents(sensors_event_t const* buffer, size_t count,
                 sensors_event_t* scratch = NULL);
@@ -91,6 +92,8 @@ class SensorService :
         bool hasAnySensor() const;
         bool addSensor(int32_t handle);
         bool removeSensor(int32_t handle);
+
+        uid_t getUid() const { return mUid; }
     };
 
     class SensorRecord {
@@ -113,6 +116,7 @@ class SensorService :
 
     // constants
     Vector<Sensor> mSensorList;
+    Vector<Sensor> mUserSensorListDebug;
     Vector<Sensor> mUserSensorList;
     DefaultKeyedVector<int, SensorInterface*> mSensorMap;
     Vector<SensorInterface *> mVirtualSensorList;
