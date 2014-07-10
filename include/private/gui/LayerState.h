@@ -112,7 +112,7 @@ struct DisplayState {
     };
 
     uint32_t what;
-    uint32_t token;
+    sp<IBinder> token;
     sp<ISurfaceTexture> surface;
     uint32_t layerStack;
     uint32_t orientation;
