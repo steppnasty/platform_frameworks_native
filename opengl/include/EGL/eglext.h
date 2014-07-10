@@ -229,23 +229,19 @@ struct ANativeWindowBuffer;
 #define EGL_NATIVE_BUFFER_ANDROID               0x3140  /* eglCreateImageKHR target */
 #endif
 
-#ifdef QCOM_HARDWARE
-#ifndef EGL_EGLEXT_PROTOTYPES
-#define EGL_EGLEXT_PROTOTYPES 1
-#endif
-
-#ifndef EGL_ANDROID_get_render_buffer
-#define EGL_ANDROID_get_render_buffer 1
-#ifdef EGL_EGLEXT_PROTOTYPES
-EGLAPI EGLClientBuffer EGLAPIENTRY eglGetRenderBufferANDROID(EGLDisplay dpy, EGLSurface draw);
-#endif
-typedef EGLClientBuffer (EGLAPIENTRYP PFNEGLGETRENDERBUFFERANDROIDPROC) (EGLDisplay dpy, EGLSurface draw);
-#endif
-#endif // QCOM_HARDWARE
-
 #ifndef EGL_ANDROID_recordable
 #define EGL_ANDROID_recordable 1
 #define EGL_RECORDABLE_ANDROID                  0x3142  /* EGLConfig attribute */
+#endif
+
+/* EGL_EXT_create_context_robustness
+ */
+#ifndef EGL_EXT_create_context_robustness
+#define EGL_EXT_create_context_robustness 1
+#define EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT    0x30BF
+#define EGL_CONTEXT_OPENGL_RESET_NOTIFICATION_STRATEGY_EXT 0x3138
+#define EGL_NO_RESET_NOTIFICATION_EXT       0x31BE
+#define EGL_LOSE_CONTEXT_ON_RESET_EXT       0x31BF
 #endif
 
 /* EGL_NV_system_time
@@ -262,7 +258,6 @@ typedef EGLuint64NV (EGLAPIENTRYP PFNEGLGETSYSTEMTIMEFREQUENCYNVPROC)(void);
 typedef EGLuint64NV (EGLAPIENTRYP PFNEGLGETSYSTEMTIMENVPROC)(void);
 #endif
 
-
 /* EGL_ANDROID_blob_cache
  */
 #ifndef EGL_ANDROID_blob_cache
@@ -277,6 +272,14 @@ typedef void (EGLAPIENTRYP PFNEGLSETBLOBCACHEFUNCSANDROIDPROC) (EGLDisplay dpy,
         EGLSetBlobFuncANDROID set, EGLGetBlobFuncANDROID get);
 #endif
 
+/* EGL_IMG_hibernate_process
+ */
+#ifndef EGL_IMG_hibernate_process
+#define EGL_IMG_hibernate_process 1
+typedef EGLBoolean (EGLAPIENTRYP PFEGLHIBERNATEPROCESSIMGPROC)(void);
+typedef EGLBoolean (EGLAPIENTRYP PFEGLAWAKENPROCESSIMGPROC)(void);
+#endif
+
 /* EGL_ANDROID_native_fence_sync
  */
 #ifndef EGL_ANDROID_native_fence_sync
@@ -288,6 +291,7 @@ typedef void (EGLAPIENTRYP PFNEGLSETBLOBCACHEFUNCSANDROIDPROC) (EGLDisplay dpy,
 #ifdef EGL_EGLEXT_PROTOTYPES
 EGLAPI EGLint EGLAPIENTRY eglDupNativeFenceFDANDROID(EGLDisplay dpy, EGLSyncKHR sync);
 #endif
+typedef EGLint (EGLAPIENTRYP PFNEGLDUPNATIVEFENCEFDANDROID) (EGLDisplay dpy, EGLSyncKHR sync);
 #endif
 
 /* EGL_ANDROID_wait_sync
@@ -298,6 +302,13 @@ EGLAPI EGLint EGLAPIENTRY eglDupNativeFenceFDANDROID(EGLDisplay dpy, EGLSyncKHR 
 EGLAPI EGLint EGLAPIENTRY eglWaitSyncANDROID(EGLDisplay dpy, EGLSyncKHR sync, EGLint flags);
 #endif
 typedef EGLint (EGLAPIENTRYP PFNEGLWAITSYNCANDROID) (EGLDisplay dpy, EGLSyncKHR sync, EGLint flags);
+#endif
+
+/* EGL_ANDROID_framebuffer_target
+ */
+#ifndef EGL_ANDROID_framebuffer_target
+#define EGL_ANDROID_framebuffer_target
+#define EGL_FRAMEBUFFER_TARGET_ANDROID                0x3147
 #endif
 
 #ifdef __cplusplus
