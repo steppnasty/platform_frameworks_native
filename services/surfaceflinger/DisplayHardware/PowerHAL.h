@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 The Android Open Source Project
+ * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,19 +14,32 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_SF_DDM_CONNECTION
-#define ANDROID_SF_DDM_CONNECTION
+#ifndef ANDROID_SF_POWER_HAL_H
+#define ANDROID_SF_POWER_HAL_H
+
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <hardware/power.h>
 
 namespace android {
+// ---------------------------------------------------------------------------
 
-// wrapper for dlsym
-extern "C" void DdmConnection_start(const char* name);
-
-class DdmConnection {
+class PowerHAL
+{
 public:
-    static void start(const char* name);
+    PowerHAL();
+    ~PowerHAL();
+
+    status_t initCheck() const;
+    status_t vsyncHint(bool enabled);
+
+private:
+    power_module_t*   mPowerModule;
+    bool mVSyncHintEnabled;
 };
 
+// ---------------------------------------------------------------------------
 }; // namespace android
 
-#endif /* ANDROID_SF_DDM_CONNECTION */
+#endif // ANDROID_SF_POWER_HAL_H

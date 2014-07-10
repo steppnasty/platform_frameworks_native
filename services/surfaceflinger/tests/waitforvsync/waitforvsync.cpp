@@ -14,28 +14,32 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_SURFACE_FLINGER_VSYNCBARRIER_H_
-#define ANDROID_SURFACE_FLINGER_VSYNCBARRIER_H_
-
 #include <stdint.h>
 #include <sys/types.h>
 
-#include <utils/Errors.h>
-#include <utils/Timers.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fb.h>
+#include <errno.h>
+#include <string.h>
+#include <stdio.h>
 
-namespace android {
-// ---------------------------------------------------------------------------
+#ifndef FBIO_WAITFORVSYNC
+#define FBIO_WAITFORVSYNC   _IOW('F', 0x20, __u32)
+#endif
 
-class VSyncBarrier {
-    int mFd;
-public:
-    VSyncBarrier();
-    ~VSyncBarrier();
-    status_t initCheck() const;
-    status_t wait(nsecs_t* timestamp) const;
-};
-
-// ---------------------------------------------------------------------------
-}; // namespace android
-
-#endif /* ANDROID_SURFACE_FLINGER_VSYNCBARRIER_H_ */
+int main(int argc, char** argv) {
+    int fd = open("/dev/graphics/fb0", O_RDWR);
+    if (fd >= 0) {
+        do {
+            uint32_t crt = 0;
+           int err = ioctl(fd, FBIO_WAITFORVSYNC, &crt);
+           if (err < 0) {
+               printf("FBIO_WAITFORVSYNC error: %s\n", strerror(errno));
+               break;
+           }
+        } while(1);
+        close(fd);
+    }
+    return 0;
+}

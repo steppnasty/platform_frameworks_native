@@ -22,9 +22,12 @@
 
 #include <gui/SurfaceTexture.h>
 
-#include <pixelflinger/pixelflinger.h>
+#include <utils/Timers.h>
+
 #include <ui/GraphicBuffer.h>
 #include <ui/PixelFormat.h>
+
+#include <gui/ISurfaceComposerClient.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -34,7 +37,6 @@
 #include "LayerBase.h"
 #include "SurfaceTextureLayer.h"
 #include "Transform.h"
-#include <utils/Timers.h>
 
 namespace android {
 
@@ -48,9 +50,7 @@ class GLExtensions;
 class Layer : public LayerBaseClient
 {
 public:
-            Layer(SurfaceFlinger* flinger, DisplayID display,
-                    const sp<Client>& client);
-
+            Layer(SurfaceFlinger* flinger, const sp<Client>& client);
     virtual ~Layer();
 
     virtual const char* getTypeId() const { return "Layer"; }
@@ -62,31 +62,37 @@ public:
     bool isFixedSize() const;
 
     // LayerBase interface
-    virtual void setGeometry(hwc_layer_t* hwcl);
-    virtual void setPerFrameData(hwc_layer_t* hwcl);
-    virtual void onDraw(const Region& clip) const;
+    virtual void setGeometry(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface& layer);
+    virtual void setPerFrameData(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface& layer);
+    virtual void setAcquireFence(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface& layer);
+    virtual void onLayerDisplayed(const sp<const DisplayDevice>& hw,
+            HWComposer::HWCLayerInterface* layer);
+    virtual bool onPreComposition();
+    virtual void onPostComposition();
+
+    virtual void onDraw(const sp<const DisplayDevice>& hw, const Region& clip) const;
     virtual uint32_t doTransaction(uint32_t transactionFlags);
-    virtual void lockPageFlip(bool& recomputeVisibleRegions);
-    virtual void unlockPageFlip(const Transform& planeTransform, Region& outDirtyRegion);
+    virtual Region latchBuffer(bool& recomputeVisibleRegions);
     virtual bool isOpaque() const;
-    virtual bool needsDithering() const     { return mNeedsDithering; }
     virtual bool isSecure() const           { return mSecure; }
     virtual bool isProtected() const;
-#ifdef QCOMHW
-    virtual void setIsUpdating(bool isUpdating);
-#endif
     virtual void onRemoved();
     virtual sp<Layer> getLayer() const { return const_cast<Layer*>(this); }
     virtual void setName(const String8& name);
+    virtual bool isVisible() const;
 
     // LayerBaseClient interface
     virtual wp<IBinder> getSurfaceTextureBinder() const;
 
-    virtual void onLayerDisplayed();
-    virtual bool onPreComposition();
-
     // only for debugging
     inline const sp<GraphicBuffer>& getActiveBuffer() const { return mActiveBuffer; }
+
+    // Updates the transform hint in our SurfaceTexture to match
+    // the current orientation of the display device.
+    virtual void updateTransformHint(const sp<const DisplayDevice>& hw) const;
 
 protected:
     virtual void onFirstRef();
@@ -99,14 +105,14 @@ private:
     void onFrameQueued();
     virtual sp<ISurface> createSurface();
     uint32_t getEffectiveUsage(uint32_t usage) const;
-    uint32_t getTransformHint() const;
     bool isCropped() const;
+    Rect computeBufferCrop() const;
     static bool getOpacityForFormat(uint32_t format);
 
     // -----------------------------------------------------------------------
 
     // constants
-    sp<SurfaceTextureLayer> mSurfaceTexture;
+    sp<SurfaceTexture> mSurfaceTexture;
     GLuint mTextureName;
 
     // thread-safe
@@ -114,7 +120,6 @@ private:
 
     // main thread
     sp<GraphicBuffer> mActiveBuffer;
-    GLfloat mTextureMatrix[16];
     Rect mCurrentCrop;
     uint32_t mCurrentTransform;
     uint32_t mCurrentScalingMode;
@@ -122,12 +127,14 @@ private:
     bool mRefreshPending;
     bool mFrameLatencyNeeded;
     int mFrameLatencyOffset;
+
     struct Statistics {
         Statistics() : timestamp(0), set(0), vsync(0) { }
-        nsecs_t timestamp; // buffer timestamp
-        nsecs_t set; // buffer displayed timestamp
-        nsecs_t vsync; // vsync immediately before set
+        nsecs_t timestamp;  // buffer timestamp
+        nsecs_t set;        // buffer displayed timestamp
+        nsecs_t vsync;      // vsync immediately before set
     };
+
     // protected by mLock
     Statistics mFrameStats[128];
 
@@ -135,17 +142,10 @@ private:
     PixelFormat mFormat;
     const GLExtensions& mGLExtensions;
     bool mOpaqueLayer;
-    bool mNeedsDithering;
 
     // page-flip thread (currently main thread)
     bool mSecure;         // no screenshots
     bool mProtectedByApp; // application requires protected path to external sink
-    Region mPostedDirtyRegion;
-
-#ifdef QCOM_HARDWARE
-    // Qcom specific flags for this layer.
-    int mLayerQcomFlags;
-#endif
 };
 
 // ---------------------------------------------------------------------------

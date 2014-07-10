@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 The Android Open Source Project
+ * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,33 +14,31 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_SURFACE_TEXTURE_LAYER_H
-#define ANDROID_SURFACE_TEXTURE_LAYER_H
+#ifndef ANDROID_SF_GRAPHIC_BUFFER_ALLOC_H
+#define ANDROID_SF_GRAPHIC_BUFFER_ALLOC_H
 
-#include <stdlib.h>
 #include <stdint.h>
 #include <sys/types.h>
 
+#include <gui/IGraphicBufferAlloc.h>
+#include <ui/PixelFormat.h>
 #include <utils/Errors.h>
-#include <gui/BufferQueue.h>
 
 namespace android {
 // ---------------------------------------------------------------------------
 
-class Layer;
+class GraphicBuffer;
 
-// SurfaceTextureLayer is now a BufferQueue since SurfaceTexture has been
-// refactored
-class SurfaceTextureLayer : public BufferQueue
-{
+class GraphicBufferAlloc : public BnGraphicBufferAlloc {
 public:
-    SurfaceTextureLayer();
-    ~SurfaceTextureLayer();
-
-    virtual status_t connect(int api, QueueBufferOutput* output);
+    GraphicBufferAlloc();
+    virtual ~GraphicBufferAlloc();
+    virtual sp<GraphicBuffer> createGraphicBuffer(uint32_t w, uint32_t h,
+        PixelFormat format, uint32_t usage, status_t* error);
 };
+
 
 // ---------------------------------------------------------------------------
 }; // namespace android
 
-#endif // ANDROID_SURFACE_TEXTURE_LAYER_H
+#endif // ANDROID_SF_GRAPHIC_BUFFER_ALLOC_H
