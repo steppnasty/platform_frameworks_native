@@ -21,7 +21,6 @@
 // skia or SurfaceFlinger are not required to support all of these formats
 // (either as source or destination)
 
-// XXX: we should consolidate these formats and skia's
 
 #ifndef UI_PIXELFORMAT_H
 #define UI_PIXELFORMAT_H
@@ -29,7 +28,6 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <utils/Errors.h>
-#include <pixelflinger/format.h>
 #include <hardware/hardware.h>
 
 namespace android {
@@ -65,19 +63,12 @@ enum {
     PIXEL_FORMAT_BGRA_8888   = HAL_PIXEL_FORMAT_BGRA_8888,  // 4x8-bit BGRA
     PIXEL_FORMAT_RGBA_5551   = HAL_PIXEL_FORMAT_RGBA_5551,  // 16-bit ARGB
     PIXEL_FORMAT_RGBA_4444   = HAL_PIXEL_FORMAT_RGBA_4444,  // 16-bit ARGB
-    PIXEL_FORMAT_A_8         = GGL_PIXEL_FORMAT_A_8,        // 8-bit A
-    PIXEL_FORMAT_L_8         = GGL_PIXEL_FORMAT_L_8,        // 8-bit L (R=G=B=L)
-    PIXEL_FORMAT_LA_88       = GGL_PIXEL_FORMAT_LA_88,      // 16-bit LA
-    PIXEL_FORMAT_RGB_332     = GGL_PIXEL_FORMAT_RGB_332,    // 8-bit RGB
-
-    // New formats can be added if they're also defined in
-    // pixelflinger/format.h
+    PIXEL_FORMAT_A_8         = 8,                           // 8-bit A
 };
 
 typedef int32_t PixelFormat;
 
-struct PixelFormatInfo
-{
+struct PixelFormatInfo {
     enum {
         INDEX_ALPHA   = 0,
         INDEX_RED     = 1,
@@ -86,12 +77,12 @@ struct PixelFormatInfo
     };
 
     enum { // components
-        ALPHA               = 1,
-        RGB                 = 2,
-        RGBA                = 3,
-        LUMINANCE           = 4,
-        LUMINANCE_ALPHA     = 5,
-        OTHER               = 0xFF
+        ALPHA   = 1,
+        RGB     = 2,
+        RGBA    = 3,
+        L       = 4,
+        LA      = 5,
+        OTHER   = 0xFF
     };
 
     struct szinfo {

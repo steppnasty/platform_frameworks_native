@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 The Android Open Source Project
+ * Copyright (C) 2012 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,9 +14,23 @@
  * limitations under the License.
  */
 
-#ifndef ANDROID_ANDROID_NATIVES_PRIV_H
-#define ANDROID_ANDROID_NATIVES_PRIV_H
+#include <ui/UiConfig.h>
 
-#include <ui/egl/android_natives.h>
+namespace android {
 
-#endif /* ANDROID_ANDROID_NATIVES_PRIV_H */
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+void appendUiConfigString(String8& configStr)
+{
+    static const char* config =
+            " [libui"
+#ifdef FRAMEBUFFER_FORCE_FORMAT
+            " FRAMEBUFFER_FORCE_FORMAT=" TOSTRING(FRAMEBUFFER_FORCE_FORMAT)
+#endif
+            "]";
+    configStr.append(config);
+}
+
+
+}; // namespace android

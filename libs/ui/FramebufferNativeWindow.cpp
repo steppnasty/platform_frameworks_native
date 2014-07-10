@@ -27,25 +27,22 @@
 #include <utils/threads.h>
 #include <utils/RefBase.h>
 
-#include <ui/Rect.h>
+#include <ui/ANativeObjectBase.h>
+#include <ui/Fence.h>
 #include <ui/FramebufferNativeWindow.h>
+#include <ui/Rect.h>
 
 #include <EGL/egl.h>
 
-#include <pixelflinger/format.h>
-#include <pixelflinger/pixelflinger.h>
-
 #include <hardware/hardware.h>
 #include <hardware/gralloc.h>
-
-#include <private/ui/android_natives_priv.h>
 
 // ----------------------------------------------------------------------------
 namespace android {
 // ----------------------------------------------------------------------------
 
 class NativeBuffer 
-    : public EGLNativeBase<
+    : public ANativeObjectBase<
         ANativeWindowBuffer, 
         NativeBuffer, 
         LightRefBase<NativeBuffer> >
@@ -96,16 +93,25 @@ FramebufferNativeWindow::FramebufferNativeWindow()
         mUpdateOnDemand = (fbDev->setUpdateRect != 0);
         
         // initialize the buffer FIFO
-#ifdef QCOMHW
-	mNumBuffers = fbDev->numFramebuffers;
-	mNumFreeBuffers = mNumBuffers;
-	mBufferHead = 0;
-
-	LOGD("mNumBuffers = %d", mNumBuffers);
-#else
-        mNumBuffers = NUM_FRAME_BUFFERS;
-        mNumFreeBuffers = NUM_FRAME_BUFFERS;
+        if(fbDev->numFramebuffers >= MIN_NUM_FRAME_BUFFERS &&
+           fbDev->numFramebuffers <= MAX_NUM_FRAME_BUFFERS){
+            mNumBuffers = fbDev->numFramebuffers;
+        } else {
+            mNumBuffers = MIN_NUM_FRAME_BUFFERS;
+        }
+        mNumFreeBuffers = mNumBuffers;
         mBufferHead = mNumBuffers-1;
+
+        /*
+         * This does not actually change the framebuffer format. It merely
+         * fakes this format to surfaceflinger so that when it creates
+         * framebuffer surfaces it will use this format. It's really a giant
+         * HACK to allow interworking with buggy gralloc+GPU driver
+         * implementations. You should *NEVER* need to set this for shipping
+         * devices.
+         */
+#ifdef FRAMEBUFFER_FORCE_FORMAT
+        *((uint32_t *)&fbDev->format) = FRAMEBUFFER_FORCE_FORMAT;
 #endif
 
         for (i = 0; i < mNumBuffers; i++)
@@ -145,30 +151,23 @@ FramebufferNativeWindow::FramebufferNativeWindow()
 
     ANativeWindow::setSwapInterval = setSwapInterval;
     ANativeWindow::dequeueBuffer = dequeueBuffer;
-    ANativeWindow::lockBuffer = lockBuffer;
     ANativeWindow::queueBuffer = queueBuffer;
     ANativeWindow::query = query;
     ANativeWindow::perform = perform;
-#ifdef QCOMHW
-    ANativeWindow::cancelBuffer = NULL;
-#endif
+
+    ANativeWindow::dequeueBuffer_DEPRECATED = dequeueBuffer_DEPRECATED;
+    ANativeWindow::lockBuffer_DEPRECATED = lockBuffer_DEPRECATED;
+    ANativeWindow::queueBuffer_DEPRECATED = queueBuffer_DEPRECATED;
 }
 
 FramebufferNativeWindow::~FramebufferNativeWindow() 
 {
     if (grDev) {
-#ifdef QCOMHW
-       for(int i = 0; i < mNumBuffers; i++) {
+        for(int i = 0; i < mNumBuffers; i++) {
             if (buffers[i] != NULL) {
                 grDev->free(grDev, buffers[i]->handle);
             }
         }
-#else
-        if (buffers[0] != NULL)
-            grDev->free(grDev, buffers[0]->handle);
-        if (buffers[1] != NULL)
-            grDev->free(grDev, buffers[1]->handle);
-#endif
         gralloc_close(grDev);
     }
 
@@ -218,96 +217,72 @@ int FramebufferNativeWindow::getCurrentBufferIndex() const
     return index;
 }
 
-int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window, 
-#ifdef QCOMHW
-        android_native_buffer_t** buffer)
-#else
+int FramebufferNativeWindow::dequeueBuffer_DEPRECATED(ANativeWindow* window, 
         ANativeWindowBuffer** buffer)
-#endif
+{
+    int fenceFd = -1;
+    int result = dequeueBuffer(window, buffer, &fenceFd);
+    sp<Fence> fence(new Fence(fenceFd));
+    int waitResult = fence->wait(Fence::TIMEOUT_NEVER);
+    if (waitResult != OK) {
+        ALOGE("dequeueBuffer_DEPRECATED: Fence::wait returned an "
+                "error: %d", waitResult);
+        return waitResult;
+    }
+    return result;
+}
+
+int FramebufferNativeWindow::dequeueBuffer(ANativeWindow* window, 
+        ANativeWindowBuffer** buffer, int* fenceFd)
 {
     FramebufferNativeWindow* self = getSelf(window);
-#ifndef QCOMHW
     Mutex::Autolock _l(self->mutex);
-#endif
     framebuffer_device_t* fb = self->fbDev;
 
-#ifdef QCOMHW
-    int index = self->mBufferHead;
-#else
     int index = self->mBufferHead++;
     if (self->mBufferHead >= self->mNumBuffers)
         self->mBufferHead = 0;
-#endif
 
-#ifdef QCOMHW
-    /* The buffer is available, return it */
-    Mutex::Autolock _l(self->mutex);
-
-    // wait if the number of free buffers <= 0
-    while (self->mNumFreeBuffers <= 0) {
-#else
-    // wait for a free buffer
-    while (!self->mNumFreeBuffers) {
-#endif
+    // wait for a free non-front buffer
+    while (self->mNumFreeBuffers < 2) {
         self->mCondition.wait(self->mutex);
     }
-#ifdef QCOMHW
-    self->mBufferHead++;
-    if (self->mBufferHead >= self->mNumBuffers)
-        self->mBufferHead = 0;
-#endif
+    ALOG_ASSERT(self->buffers[index] != self->front);
+
     // get this buffer
     self->mNumFreeBuffers--;
     self->mCurrentBufferIndex = index;
 
     *buffer = self->buffers[index].get();
+    *fenceFd = -1;
 
     return 0;
 }
 
-int FramebufferNativeWindow::lockBuffer(ANativeWindow* window, 
-#ifdef QCOMHW
-        android_native_buffer_t* buffer)
-#else
+int FramebufferNativeWindow::lockBuffer_DEPRECATED(ANativeWindow* window, 
         ANativeWindowBuffer* buffer)
-#endif
 {
-    FramebufferNativeWindow* self = getSelf(window);
-#ifdef QCOMHW
-    framebuffer_device_t* fb = self->fbDev;
-    int index = -1;
-
-    {
-        Mutex::Autolock _l(self->mutex);
-        index = self->mCurrentBufferIndex;
-    }
-#else
-    Mutex::Autolock _l(self->mutex);
-
-    const int index = self->mCurrentBufferIndex;
-#endif
-
-#ifdef QCOMHW
-    fb->lockBuffer(fb, index);
-#else
-    // wait that the buffer we're locking is not front anymore
-    while (self->front == buffer) {
-        self->mCondition.wait(self->mutex);
-    }
-#endif
     return NO_ERROR;
 }
 
-int FramebufferNativeWindow::queueBuffer(ANativeWindow* window, 
+int FramebufferNativeWindow::queueBuffer_DEPRECATED(ANativeWindow* window, 
         ANativeWindowBuffer* buffer)
+{
+    return queueBuffer(window, buffer, -1);
+}
+
+int FramebufferNativeWindow::queueBuffer(ANativeWindow* window, 
+        ANativeWindowBuffer* buffer, int fenceFd)
 {
     FramebufferNativeWindow* self = getSelf(window);
     Mutex::Autolock _l(self->mutex);
     framebuffer_device_t* fb = self->fbDev;
     buffer_handle_t handle = static_cast<NativeBuffer*>(buffer)->handle;
 
-    const int index = self->mCurrentBufferIndex;
+    sp<Fence> fence(new Fence(fenceFd));
+    fence->wait(Fence::TIMEOUT_NEVER);
 
+    const int index = self->mCurrentBufferIndex;
     int res = fb->post(fb, handle);
     self->front = static_cast<NativeBuffer*>(buffer);
     self->mNumFreeBuffers++;
@@ -334,11 +309,6 @@ int FramebufferNativeWindow::query(const ANativeWindow* window,
         case NATIVE_WINDOW_CONCRETE_TYPE:
             *value = NATIVE_WINDOW_FRAMEBUFFER;
             return NO_ERROR;
-#ifdef QCOMHW
-        case NATIVE_WINDOW_NUM_BUFFERS:
-            *value = fb->numFramebuffers;
-            return NO_ERROR;
-#endif
         case NATIVE_WINDOW_QUEUES_TO_WINDOW_COMPOSER:
             *value = 0;
             return NO_ERROR;

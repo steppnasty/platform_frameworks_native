@@ -16,7 +16,6 @@ LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:= \
-	EGLUtils.cpp \
 	Fence.cpp \
 	FramebufferNativeWindow.cpp \
 	GraphicBuffer.cpp \
@@ -24,30 +23,24 @@ LOCAL_SRC_FILES:= \
 	GraphicBufferMapper.cpp \
 	PixelFormat.cpp \
 	Rect.cpp \
-	Region.cpp
+	Region.cpp \
+	UiConfig.cpp
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \
-	libutils \
-	libEGL \
-	libpixelflinger \
 	libhardware \
-	libhardware_legacy \
-	libskia \
-        libsync \
-	libbinder
-
-LOCAL_C_INCLUDES := \
-    system/core/include \
-    external/skia/include/core
+	libsync \
+	libutils
 
 ifeq ($(BOARD_USES_HTC_CAMERA),true)
     LOCAL_SRC_FILES+= OverlayHtc.cpp
 endif
 
-ifeq ($(BOARD_USES_QCOM_HARDWARE),true)
-    LOCAL_CFLAGS += -DQCOMHW
+ifneq ($(BOARD_FRAMEBUFFER_FORCE_FORMAT),)
+LOCAL_CFLAGS += -DFRAMEBUFFER_FORCE_FORMAT=$(BOARD_FRAMEBUFFER_FORCE_FORMAT)
 endif
+
+LOCAL_C_INCLUDES:= hardware/qcom/display
 
 LOCAL_MODULE:= libui
 
