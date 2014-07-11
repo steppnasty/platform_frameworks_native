@@ -23,7 +23,7 @@
 #include <utils/Errors.h>
 
 #include <ui/Region.h>
-
+#include <ui/Rect.h>
 #include <gui/ISurface.h>
 
 namespace android {
@@ -32,6 +32,7 @@ class Parcel;
 class ISurfaceComposerClient;
 
 struct layer_state_t {
+
 
     enum {
         eLayerHidden        = 0x01,
@@ -52,11 +53,12 @@ struct layer_state_t {
     layer_state_t()
         :   surface(0), what(0),
             x(0), y(0), z(0), w(0), h(0), layerStack(0),
-            alpha(0), tint(0), flags(0), mask(0),
+            alpha(0), flags(0), mask(0),
             reserved(0)
     {
         matrix.dsdx = matrix.dtdy = 1.0f;
         matrix.dsdy = matrix.dtdx = 0.0f;
+        crop.makeInvalid();
     }
 
     status_t    write(Parcel& output) const;
@@ -77,7 +79,6 @@ struct layer_state_t {
             uint32_t        h;
             uint32_t        layerStack;
             float           alpha;
-            uint32_t        tint;
             uint8_t         flags;
             uint8_t         mask;
             uint8_t         reserved;
