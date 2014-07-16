@@ -24,17 +24,7 @@
 
 #include <android/looper.h>
 
-// When defined, uses epoll_wait() for polling, otherwise uses poll().
-#define LOOPER_USES_EPOLL
-
-// When defined, logs performance statistics for tuning and debugging purposes.
-//#define LOOPER_STATISTICS
-
-#ifdef LOOPER_USES_EPOLL
 #include <sys/epoll.h>
-#else
-#include <sys/poll.h>
-#endif
 
 /*
  * Declare a concrete type for the NDK's looper forward declaration.
@@ -80,6 +70,9 @@ public:
  * A simple proxy that holds a weak reference to a message handler.
  */
 class WeakMessageHandler : public MessageHandler {
+protected:
+    virtual ~WeakMessageHandler();
+
 public:
     WeakMessageHandler(const wp<MessageHandler>& handler);
     virtual void handleMessage(const Message& message);
@@ -87,6 +80,7 @@ public:
 private:
     wp<MessageHandler> mHandler;
 };
+
 
 /**
  * A looper callback.
@@ -108,6 +102,7 @@ public:
     virtual int handleEvent(int fd, int events, void* data) = 0;
 };
 
+
 /**
  * Wraps a ALooper_callbackFunc function pointer.
  */
@@ -122,6 +117,7 @@ public:
 private:
     ALooper_callbackFunc mCallback;
 };
+
 
 /**
  * A polling loop that supports monitoring file descriptor events, optionally
@@ -203,7 +199,7 @@ public:
      * If the same file descriptor was previously added, it is replaced.
      *
      * "fd" is the file descriptor to be added.
-     * "ident" is an identifier for this event, which is returned from ALooper_pollOnce().
+     * "ident" is an identifier for this event, which is returned from pollOnce().
      * The identifier must be >= 0, or ALOOPER_POLL_CALLBACK if providing a non-NULL callback.
      * "events" are the poll events to wake up on.  Typically this is ALOOPER_EVENT_INPUT.
      * "callback" is the function to call when there is an event on the file descriptor.
@@ -223,6 +219,11 @@ public:
      *
      * This method can be called on any thread.
      * This method may block briefly if it needs to wake the poll.
+     *
+     * The callback may either be specified as a bare function pointer or as a smart
+     * pointer callback object.  The smart pointer should be preferred because it is
+     * easier to avoid races when the callback is removed from a different thread.
+     * See removeFd() for details.
      */
     int addFd(int fd, int ident, int events, ALooper_callbackFunc callback, void* data);
     int addFd(int fd, int ident, int events, const sp<LooperCallback>& callback, void* data);
@@ -237,6 +238,10 @@ public:
      * For example, if the callback takes care of removing itself during its own execution either
      * by returning 0 or by calling this method, then it can be guaranteed to not be invoked
      * again at any later time unless registered anew.
+     *
+     * A simple way to avoid this problem is to use the version of addFd() that takes
+     * a sp<LooperCallback> instead of a bare function pointer.  The LooperCallback will
+     * be released at the appropriate time by the Looper.
      *
      * Returns 1 if the file descriptor was removed, 0 if none was previously registered.
      *
@@ -348,50 +353,10 @@ private:
     Vector<MessageEnvelope> mMessageEnvelopes; // guarded by mLock
     bool mSendingMessage; // guarded by mLock
 
-#ifdef LOOPER_USES_EPOLL
     int mEpollFd; // immutable
 
     // Locked list of file descriptor monitoring requests.
     KeyedVector<int, Request> mRequests;  // guarded by mLock
-#else
-    // The lock guards state used to track whether there is a poll() in progress and whether
-    // there are any other threads waiting in wakeAndLock().  The condition variables
-    // are used to transfer control among these threads such that all waiters are
-    // serviced before a new poll can begin.
-    // The wakeAndLock() method increments mWaiters, wakes the poll, blocks on mAwake
-    // until mPolling becomes false, then decrements mWaiters again.
-    // The poll() method blocks on mResume until mWaiters becomes 0, then sets
-    // mPolling to true, blocks until the poll completes, then resets mPolling to false
-    // and signals mResume if there are waiters.
-    bool mPolling;      // guarded by mLock
-    uint32_t mWaiters;  // guarded by mLock
-    Condition mAwake;   // guarded by mLock
-    Condition mResume;  // guarded by mLock
-
-    Vector<struct pollfd> mRequestedFds;  // must hold mLock and mPolling must be false to modify
-    Vector<Request> mRequests;            // must hold mLock and mPolling must be false to modify
-
-    ssize_t getRequestIndexLocked(int fd);
-    void wakeAndLock();
-#endif
-
-#ifdef LOOPER_STATISTICS
-    static const int SAMPLED_WAKE_CYCLES_TO_AGGREGATE = 100;
-    static const int SAMPLED_POLLS_TO_AGGREGATE = 1000;
-
-    nsecs_t mPendingWakeTime;
-    int mPendingWakeCount;
-
-    int mSampledWakeCycles;
-    int mSampledWakeCountSum;
-    nsecs_t mSampledWakeLatencySum;
-
-    int mSampledPolls;
-    int mSampledZeroPollCount;
-    int mSampledZeroPollLatencySum;
-    int mSampledTimeoutPollCount;
-    int mSampledTimeoutPollLatencySum;
-#endif
 
     // This state is only used privately by pollOnce and does not require a lock since
     // it runs on a single thread.

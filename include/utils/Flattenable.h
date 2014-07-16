@@ -24,6 +24,11 @@
 
 namespace android {
 
+/*
+ * The Flattenable interface allows an object to serialize itself out
+ * to a byte-buffer and an array of file descriptors.
+ */
+
 class Flattenable
 {
 public:

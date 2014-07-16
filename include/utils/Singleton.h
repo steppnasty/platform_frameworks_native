@@ -69,6 +69,7 @@ private:
     template<> TYPE* Singleton< TYPE >::sInstance(0);           \
     template class Singleton< TYPE >;
 
+
 // ---------------------------------------------------------------------------
 }; // namespace android
 
