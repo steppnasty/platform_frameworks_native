@@ -32,7 +32,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <cutils/debugger.h>
+#include <cutils/debuggerd.h>
 #include <cutils/properties.h>
 #include <cutils/sockets.h>
 #include <private/android_filesystem_config.h>
