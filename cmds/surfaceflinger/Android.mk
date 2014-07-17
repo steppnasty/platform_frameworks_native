@@ -9,9 +9,8 @@ LOCAL_SHARED_LIBRARIES := \
 	libbinder \
 	libutils
 
-LOCAL_C_INCLUDES :=  frameworks/native/services/surfaceflinger
-
-LOCAL_C_INCLUDES +=  hardware/qcom/display/libqcomui
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/../../services/surfaceflinger
 
 LOCAL_MODULE:= surfaceflinger
 
