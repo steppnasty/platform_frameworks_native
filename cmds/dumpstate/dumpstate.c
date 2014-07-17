@@ -25,6 +25,8 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <linux/capability.h>
+#include <linux/prctl.h>
 
 #include <cutils/properties.h>
 
@@ -63,6 +65,7 @@ static void dumpstate() {
 
     printf("\n");
     printf("Build: %s\n", build);
+    printf("Build fingerprint: '%s'\n", fingerprint); /* format is important for other tools */
     printf("Bootloader: %s\n", bootloader);
     printf("Radio: %s\n", radio);
     printf("Network: %s\n", network);
@@ -82,14 +85,30 @@ static void dumpstate() {
     dump_file("ZONEINFO", "/proc/zoneinfo");
     dump_file("PAGETYPEINFO", "/proc/pagetypeinfo");
     dump_file("BUDDYINFO", "/proc/buddyinfo");
+    dump_file("FRAGMENTATION INFO", "/d/extfrag/unusable_index");
 
-    if (screenshot_path[0]) {
-        ALOGI("taking screenshot\n");
-        run_command(NULL, 5, "su", "root", "screenshot", screenshot_path, NULL);
-        ALOGI("wrote screenshot: %s\n", screenshot_path);
-    }
 
+    dump_file("KERNEL WAKELOCKS", "/proc/wakelocks");
+    dump_file("KERNEL WAKE SOURCES", "/d/wakeup_sources");
+    dump_file("KERNEL CPUFREQ", "/sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state");
+    dump_file("KERNEL SYNC", "/d/sync");
+
+    run_command("PROCESSES", 10, "ps", "-P", NULL);
+    run_command("PROCESSES AND THREADS", 10, "ps", "-t", "-p", "-P", NULL);
+    run_command("LIBRANK", 10, "librank", NULL);
+
+    do_dmesg();
+
+    run_command("LIST OF OPEN FILES", 10, SU_PATH, "root", "lsof", NULL);
+
+    for_each_pid(do_showmap, "SMAPS OF ALL PROCESSES");
+    for_each_pid(show_wchan, "BLOCKED PROCESS WAIT-CHANNELS");
+
+    // dump_file("EVENT LOG TAGS", "/etc/event-log-tags");
     run_command("SYSTEM LOG", 20, "logcat", "-v", "threadtime", "-d", "*:v", NULL);
+    run_command("EVENT LOG", 20, "logcat", "-b", "events", "-v", "threadtime", "-d", "*:v", NULL);
+    run_command("RADIO LOG", 20, "logcat", "-b", "radio", "-v", "threadtime", "-d", "*:v", NULL);
+
 
     /* show the traces we collected in main(), if that was done */
     if (dump_traces_path != NULL) {
@@ -126,18 +145,32 @@ static void dumpstate() {
         }
     }
 
-    // dump_file("EVENT LOG TAGS", "/etc/event-log-tags");
-    run_command("EVENT LOG", 20, "logcat", "-b", "events", "-v", "threadtime", "-d", "*:v", NULL);
-    run_command("RADIO LOG", 20, "logcat", "-b", "radio", "-v", "threadtime", "-d", "*:v", NULL);
-
-    run_command("NETWORK INTERFACES", 10, "su", "root", "netcfg", NULL);
     dump_file("NETWORK DEV INFO", "/proc/net/dev");
     dump_file("QTAGUID NETWORK INTERFACES INFO", "/proc/net/xt_qtaguid/iface_stat_all");
+    dump_file("QTAGUID NETWORK INTERFACES INFO (xt)", "/proc/net/xt_qtaguid/iface_stat_fmt");
     dump_file("QTAGUID CTRL INFO", "/proc/net/xt_qtaguid/ctrl");
-    run_command("QTAGUID STATS INFO", 10, "su", "root", "cat", "/proc/net/xt_qtaguid/stats", NULL);
+    dump_file("QTAGUID STATS INFO", "/proc/net/xt_qtaguid/stats");
 
     dump_file("NETWORK ROUTES", "/proc/net/route");
     dump_file("NETWORK ROUTES IPV6", "/proc/net/ipv6_route");
+
+    /* TODO: Make last_kmsg CAP_SYSLOG protected. b/5555691 */
+    dump_file("LAST KMSG", "/proc/last_kmsg");
+    dump_file("LAST PANIC CONSOLE", "/data/dontpanic/apanic_console");
+    dump_file("LAST PANIC THREADS", "/data/dontpanic/apanic_threads");
+
+    if (screenshot_path[0]) {
+        ALOGI("taking screenshot\n");
+        run_command(NULL, 5, SU_PATH, "root", "screenshot", screenshot_path, NULL);
+        ALOGI("wrote screenshot: %s\n", screenshot_path);
+    }
+
+    run_command("SYSTEM SETTINGS", 20, SU_PATH, "root", "sqlite3",
+            "/data/data/com.android.providers.settings/databases/settings.db",
+            "pragma user_version; select * from system; select * from secure; select * from global;", NULL);
+
+    /* The following have a tendency to get wedged when wifi drivers/fw goes belly-up. */
+    run_command("NETWORK INTERFACES", 10, SU_PATH, "root", "netcfg", NULL);
     run_command("IP RULES", 10, "ip", "rule", "show", NULL);
     run_command("IP RULES v6", 10, "ip", "-6", "rule", "show", NULL);
     run_command("ROUTE TABLE 60", 10, "ip", "route", "show", "table", "60", NULL);
@@ -145,76 +178,50 @@ static void dumpstate() {
     run_command("ROUTE TABLE 61", 10, "ip", "route", "show", "table", "61", NULL);
     run_command("ROUTE TABLE 61 v6", 10, "ip", "-6", "route", "show", "table", "61", NULL);
     dump_file("ARP CACHE", "/proc/net/arp");
-    run_command("IPTABLES", 10, "su", "root", "iptables", "-L", "-nvx", NULL);
-    run_command("IP6TABLES", 10, "su", "root", "ip6tables", "-L", "-nvx", NULL);
-    run_command("IPTABLE NAT", 10, "su", "root", "iptables", "-t", "nat", "-L", "-n", NULL);
-    run_command("IPT6ABLE NAT", 10, "su", "root", "ip6tables", "-t", "nat", "-L", "-n", NULL);
+    run_command("IPTABLES", 10, SU_PATH, "root", "iptables", "-L", "-nvx", NULL);
+    run_command("IP6TABLES", 10, SU_PATH, "root", "ip6tables", "-L", "-nvx", NULL);
+    run_command("IPTABLE NAT", 10, SU_PATH, "root", "iptables", "-t", "nat", "-L", "-nvx", NULL);
+    /* no ip6 nat */
+    run_command("IPTABLE RAW", 10, SU_PATH, "root", "iptables", "-t", "raw", "-L", "-nvx", NULL);
+    run_command("IP6TABLE RAW", 10, SU_PATH, "root", "ip6tables", "-t", "raw", "-L", "-nvx", NULL);
 
     run_command("WIFI NETWORKS", 20,
-            "su", "root", "wpa_cli", "list_networks", NULL);
+            SU_PATH, "root", "wpa_cli", "list_networks", NULL);
+
+#ifdef FWDUMP_bcmdhd
+    run_command("DUMP WIFI INTERNAL COUNTERS", 20,
+            SU_PATH, "root", "wlutil", "counters", NULL);
+#endif
+    dump_file("INTERRUPTS (1)", "/proc/interrupts");
 
     property_get("dhcp.wlan0.gateway", network, "");
     if (network[0])
-        run_command("PING GATEWAY", 10, "su", "root", "ping", "-c", "3", "-i", ".5", network, NULL);
+        run_command("PING GATEWAY", 10, SU_PATH, "root", "ping", "-c", "3", "-i", ".5", network, NULL);
     property_get("dhcp.wlan0.dns1", network, "");
     if (network[0])
-        run_command("PING DNS1", 10, "su", "root", "ping", "-c", "3", "-i", ".5", network, NULL);
+        run_command("PING DNS1", 10, SU_PATH, "root", "ping", "-c", "3", "-i", ".5", network, NULL);
     property_get("dhcp.wlan0.dns2", network, "");
     if (network[0])
-        run_command("PING DNS2", 10, "su", "root", "ping", "-c", "3", "-i", ".5", network, NULL);
-#ifdef FWDUMP_bcm4329
+        run_command("PING DNS2", 10, SU_PATH, "root", "ping", "-c", "3", "-i", ".5", network, NULL);
+#ifdef FWDUMP_bcmdhd
     run_command("DUMP WIFI STATUS", 20,
-            "su", "root", "dhdutil", "-i", "wlan0", "dump", NULL);
+            SU_PATH, "root", "dhdutil", "-i", "wlan0", "dump", NULL);
     run_command("DUMP WIFI INTERNAL COUNTERS", 20,
-            "su", "root", "wlutil", "counters", NULL);
+            SU_PATH, "root", "wlutil", "counters", NULL);
 #endif
-
-    char ril_dumpstate_timeout[PROPERTY_VALUE_MAX] = {0};
-    property_get("ril.dumpstate.timeout", ril_dumpstate_timeout, "30");
-    if (strnlen(ril_dumpstate_timeout, PROPERTY_VALUE_MAX - 1) > 0) {
-        if (0 == strncmp(build_type, "user", PROPERTY_VALUE_MAX - 1)) {
-            // su does not exist on user builds, so try running without it.
-            // This way any implementations of vril-dump that do not require
-            // root can run on user builds.
-            run_command("DUMP VENDOR RIL LOGS", atoi(ril_dumpstate_timeout),
-                    "vril-dump", NULL);
-        } else {
-            run_command("DUMP VENDOR RIL LOGS", atoi(ril_dumpstate_timeout),
-                    "su", "root", "vril-dump", NULL);
-        }
-    }
+    dump_file("INTERRUPTS (2)", "/proc/interrupts");
 
     print_properties();
-
-    run_command("KERNEL LOG", 20, "dmesg", NULL);
-
-    dump_file("KERNEL WAKELOCKS", "/proc/wakelocks");
-    dump_file("KERNEL CPUFREQ", "/sys/devices/system/cpu/cpu0/cpufreq/stats/time_in_state");
 
     run_command("VOLD DUMP", 10, "vdc", "dump", NULL);
     run_command("SECURE CONTAINERS", 10, "vdc", "asec", "list", NULL);
 
-    run_command("PROCESSES", 10, "ps", "-P", NULL);
-    run_command("PROCESSES AND THREADS", 10, "ps", "-t", "-p", "-P", NULL);
-    run_command("LIBRANK", 10, "librank", NULL);
+    run_command("FILESYSTEMS & FREE SPACE", 10, SU_PATH, "root", "df", NULL);
 
-    dump_file("BINDER FAILED TRANSACTION LOG", "/sys/kernel/debug/binder/failed_transaction_log");
-    dump_file("BINDER TRANSACTION LOG", "/sys/kernel/debug/binder/transaction_log");
-    dump_file("BINDER TRANSACTIONS", "/sys/kernel/debug/binder/transactions");
-    dump_file("BINDER STATS", "/sys/kernel/debug/binder/stats");
-    dump_file("BINDER STATE", "/sys/kernel/debug/binder/state");
-
-    run_command("FILESYSTEMS & FREE SPACE", 10, "su", "root", "df", NULL);
-
-    dump_file("PACKAGE SETTINGS", "/data/system/packages.xml");
+    run_command("PACKAGE SETTINGS", 20, SU_PATH, "root", "cat", "/data/system/packages.xml", NULL);
     dump_file("PACKAGE UID ERRORS", "/data/system/uiderrors.txt");
 
-    dump_file("LAST KMSG", "/proc/last_kmsg");
     run_command("LAST RADIO LOG", 10, "parse_radio_log", "/proc/last_radio_log", NULL);
-    dump_file("LAST PANIC CONSOLE", "/data/dontpanic/apanic_console");
-    dump_file("LAST PANIC THREADS", "/data/dontpanic/apanic_threads");
-
-    for_each_pid(show_wchan, "BLOCKED PROCESS WAIT-CHANNELS");
 
     printf("------ BACKLIGHTS ------\n");
     printf("LCD brightness=");
@@ -229,9 +236,12 @@ static void dumpstate() {
     dump_file(NULL, "/sys/class/leds/lcd-backlight/registers");
     printf("\n");
 
-    run_command("LIST OF OPEN FILES", 10, "su", "root", "lsof", NULL);
-
-    for_each_pid(do_showmap, "SMAPS OF ALL PROCESSES");
+    /* Binder state is expensive to look at as it uses a lot of memory. */
+    dump_file("BINDER FAILED TRANSACTION LOG", "/sys/kernel/debug/binder/failed_transaction_log");
+    dump_file("BINDER TRANSACTION LOG", "/sys/kernel/debug/binder/transaction_log");
+    dump_file("BINDER TRANSACTIONS", "/sys/kernel/debug/binder/transactions");
+    dump_file("BINDER STATS", "/sys/kernel/debug/binder/stats");
+    dump_file("BINDER STATE", "/sys/kernel/debug/binder/state");
 
 #ifdef BOARD_HAS_DUMPSTATE
     printf("========================================================\n");
@@ -241,6 +251,22 @@ static void dumpstate() {
     dumpstate_board();
     printf("\n");
 #endif
+
+    /* Migrate the ril_dumpstate to a dumpstate_board()? */
+    char ril_dumpstate_timeout[PROPERTY_VALUE_MAX] = {0};
+    property_get("ril.dumpstate.timeout", ril_dumpstate_timeout, "30");
+    if (strnlen(ril_dumpstate_timeout, PROPERTY_VALUE_MAX - 1) > 0) {
+        if (0 == strncmp(build_type, "user", PROPERTY_VALUE_MAX - 1)) {
+            // su does not exist on user builds, so try running without it.
+            // This way any implementations of vril-dump that do not require
+            // root can run on user builds.
+            run_command("DUMP VENDOR RIL LOGS", atoi(ril_dumpstate_timeout),
+                    "vril-dump", NULL);
+        } else {
+            run_command("DUMP VENDOR RIL LOGS", atoi(ril_dumpstate_timeout),
+                    SU_PATH, "root", "vril-dump", NULL);
+        }
+    }
 
     printf("========================================================\n");
     printf("== Android Framework Services\n");
@@ -264,12 +290,19 @@ static void dumpstate() {
     run_command("APP SERVICES", 30, "dumpsys", "activity", "service", "all", NULL);
 
     printf("========================================================\n");
+    printf("== Running Application Providers\n");
+    printf("========================================================\n");
+
+    run_command("APP SERVICES", 30, "dumpsys", "activity", "provider", "all", NULL);
+
+
+    printf("========================================================\n");
     printf("== dumpstate: done\n");
     printf("========================================================\n");
 }
 
 static void usage() {
-    fprintf(stderr, "usage: dumpstate [-b soundfile] [-e soundfile] [-o file [-d] [-p] [-z]] [-s]\n"
+    fprintf(stderr, "usage: dumpstate [-b soundfile] [-e soundfile] [-o file [-d] [-p] [-z]] [-s] [-q]\n"
             "  -o: write to file (instead of stdout)\n"
             "  -d: append date to filename (requires -o)\n"
             "  -z: gzip output (requires -o)\n"
@@ -277,19 +310,31 @@ static void usage() {
             "  -s: write output to control socket (for init)\n"
             "  -b: play sound file instead of vibrate, at beginning of job\n"
             "  -e: play sound file instead of vibrate, at end of job\n"
+            "  -q: disable vibrate\n"
 		);
 }
 
 int main(int argc, char *argv[]) {
     int do_add_date = 0;
     int do_compress = 0;
+    int do_vibrate = 1;
     char* use_outfile = 0;
     char* begin_sound = 0;
     char* end_sound = 0;
     int use_socket = 0;
     int do_fb = 0;
 
+    if (getuid() != 0) {
+        // Old versions of the adb client would call the
+        // dumpstate command directly. Newer clients
+        // call /system/bin/bugreport instead. If we detect
+        // we're being called incorrectly, then exec the
+        // correct program.
+        return execl("/system/bin/bugreport", "/system/bin/bugreport", NULL);
+    }
     ALOGI("begin\n");
+
+    signal(SIGPIPE, SIG_IGN);
 
     /* set as high priority, and protect from OOM killer */
     setpriority(PRIO_PROCESS, 0, -20);
@@ -299,11 +344,11 @@ int main(int argc, char *argv[]) {
         fclose(oom_adj);
     }
 
-    /* very first thing, collect VM traces from Dalvik (needs root) */
-    dump_traces_path = dump_vm_traces();
+    /* very first thing, collect stack traces from Dalvik and native processes (needs root) */
+    dump_traces_path = dump_traces();
 
     int c;
-    while ((c = getopt(argc, argv, "b:de:ho:svzp")) != -1) {
+    while ((c = getopt(argc, argv, "b:de:ho:svqzp")) != -1) {
         switch (c) {
             case 'b': begin_sound = optarg;  break;
             case 'd': do_add_date = 1;       break;
@@ -311,6 +356,7 @@ int main(int argc, char *argv[]) {
             case 'o': use_outfile = optarg;  break;
             case 's': use_socket = 1;        break;
             case 'v': break;  // compatibility no-op
+            case 'q': do_vibrate = 0;        break;
             case 'z': do_compress = 6;       break;
             case 'p': do_fb = 1;             break;
             case '?': printf("\n");
@@ -320,9 +366,12 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* open the vibrator before dropping root */
-    FILE *vibrator = fopen("/sys/class/timed_output/vibrator/enable", "w");
-    if (vibrator) fcntl(fileno(vibrator), F_SETFD, FD_CLOEXEC);
+    FILE *vibrator = 0;
+    if (do_vibrate) {
+        /* open the vibrator before dropping root */
+        vibrator = fopen("/sys/class/timed_output/vibrator/enable", "w");
+        if (vibrator) fcntl(fileno(vibrator), F_SETFD, FD_CLOEXEC);
+    }
 
     /* read /proc/cmdline before dropping root */
     FILE *cmdline = fopen("/proc/cmdline", "r");
@@ -331,21 +380,42 @@ int main(int argc, char *argv[]) {
         fclose(cmdline);
     }
 
-    if (getuid() == 0) {
-        /* switch to non-root user and group */
-        gid_t groups[] = { AID_LOG, AID_SDCARD_RW, AID_MOUNT, AID_INET };
-        if (setgroups(sizeof(groups)/sizeof(groups[0]), groups) != 0) {
-            ALOGE("Unable to setgroups, aborting: %s\n", strerror(errno));
-            return -1;
-        }
-        if (setgid(AID_SHELL) != 0) {
-            ALOGE("Unable to setgid, aborting: %s\n", strerror(errno));
-            return -1;
-        }
-        if (setuid(AID_SHELL) != 0) {
-            ALOGE("Unable to setuid, aborting: %s\n", strerror(errno));
-            return -1;
-        }
+    if (prctl(PR_SET_KEEPCAPS, 1) < 0) {
+        ALOGE("prctl(PR_SET_KEEPCAPS) failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    /* switch to non-root user and group */
+    gid_t groups[] = { AID_LOG, AID_SDCARD_R, AID_SDCARD_RW,
+            AID_MOUNT, AID_INET, AID_NET_BW_STATS };
+    if (setgroups(sizeof(groups)/sizeof(groups[0]), groups) != 0) {
+        ALOGE("Unable to setgroups, aborting: %s\n", strerror(errno));
+        return -1;
+    }
+    if (setgid(AID_SHELL) != 0) {
+        ALOGE("Unable to setgid, aborting: %s\n", strerror(errno));
+        return -1;
+    }
+    if (setuid(AID_SHELL) != 0) {
+        ALOGE("Unable to setuid, aborting: %s\n", strerror(errno));
+        return -1;
+    }
+
+    struct __user_cap_header_struct capheader;
+    struct __user_cap_data_struct capdata[2];
+    memset(&capheader, 0, sizeof(capheader));
+    memset(&capdata, 0, sizeof(capdata));
+    capheader.version = _LINUX_CAPABILITY_VERSION_3;
+    capheader.pid = 0;
+
+    capdata[CAP_TO_INDEX(CAP_SYSLOG)].permitted = CAP_TO_MASK(CAP_SYSLOG);
+    capdata[CAP_TO_INDEX(CAP_SYSLOG)].effective = CAP_TO_MASK(CAP_SYSLOG);
+    capdata[0].inheritable = 0;
+    capdata[1].inheritable = 0;
+
+    if (capset(&capheader, &capdata[0]) < 0) {
+        ALOGE("capset failed: %s\n", strerror(errno));
+        return -1;
     }
 
     char path[PATH_MAX], tmp_path[PATH_MAX];
