@@ -336,6 +336,17 @@ int32_t AConfiguration_getSmallestScreenWidthDp(AConfiguration* config);
 void AConfiguration_setSmallestScreenWidthDp(AConfiguration* config, int32_t value);
 
 /**
+ * Return the configuration's layout direction, or
+ * ACONFIGURATION_LAYOUTDIR_ANY if not set.
+ */
+int32_t AConfiguration_getLayoutDirection(AConfiguration* config);
+
+/**
+ * Set the configuration's layout direction.
+ */
+void AConfiguration_setLayoutDirection(AConfiguration* config, int32_t value);
+
+/**
  * Perform a diff between two configurations.  Returns a bit mask of
  * ACONFIGURATION_* constants, each bit set meaning that configuration element
  * is different between them.
