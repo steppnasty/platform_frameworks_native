@@ -14,13 +14,12 @@
 # limitations under the License.
 #
 
-# Provides overrides to configure the Dalvik heap for a standard high density
-# phone with around 512MB total RAM.
+# Provides overrides to configure the Dalvik heap for a standard tablet device.
 
 PRODUCT_PROPERTY_OVERRIDES += \
-    dalvik.vm.heapstartsize=5m \
-    dalvik.vm.heapgrowthlimit=48m \
-    dalvik.vm.heapsize=128m \
+    dalvik.vm.heapstartsize=8m \
+    dalvik.vm.heapgrowthlimit=64m \
+    dalvik.vm.heapsize=384m \
     dalvik.vm.heaptargetutilization=0.75 \
     dalvik.vm.heapminfree=512k \
-    dalvik.vm.heapmaxfree=2m
+    dalvik.vm.heapmaxfree=8m
