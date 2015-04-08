@@ -18,6 +18,7 @@ LOCAL_PATH:= $(call my-dir)
 # and once for the device.
 
 commonSources:= \
+	BasicHashtable.cpp \
 	BlobCache.cpp \
 	BufferedTextOutput.cpp \
 	CallStack.cpp \
@@ -71,9 +72,11 @@ ifeq ($(HOST_OS), linux)
 LOCAL_SRC_FILES += Looper.cpp
 endif
 LOCAL_MODULE:= libutils
+LOCAL_STATIC_LIBRARIES := libz
+LOCAL_C_INCLUDES := \
+	external/zlib
 LOCAL_CFLAGS += $(host_commonCflags)
 LOCAL_LDLIBS += $(host_commonLdlibs)
-LOCAL_C_INCLUDES += external/zlib
 include $(BUILD_HOST_STATIC_LIBRARY)
 
 
@@ -85,11 +88,12 @@ ifeq ($(HOST_OS), linux)
 LOCAL_SRC_FILES += Looper.cpp
 endif
 LOCAL_MODULE:= lib64utils
+LOCAL_STATIC_LIBRARIES := libz
+LOCAL_C_INCLUDES := \
+	external/zlib
 LOCAL_CFLAGS += $(host_commonCflags) -m64
 LOCAL_LDLIBS += $(host_commonLdlibs)
-LOCAL_C_INCLUDES += external/zlib
 include $(BUILD_HOST_STATIC_LIBRARY)
-
 
 
 # For the device
@@ -108,30 +112,20 @@ LOCAL_LDLIBS += -lrt -ldl
 endif
 
 LOCAL_C_INCLUDES += \
-		external/zlib \
-		external/icu4c/common \
-		bionic/libc/private
+		bionic/libc/private \
+		external/zlib
 
 LOCAL_LDLIBS += -lpthread
 
 LOCAL_SHARED_LIBRARIES := \
-	libz \
 	liblog \
 	libcutils \
-	libdl
+	libdl \
+	libcorkscrew \
+	libz
 
 LOCAL_MODULE:= libutils
 include $(BUILD_SHARED_LIBRARY)
-
-ifeq ($(TARGET_OS),linux)
-include $(CLEAR_VARS)
-LOCAL_C_INCLUDES += external/zlib external/icu4c/common bionic/libc/private
-LOCAL_LDLIBS := -lrt -ldl -lpthread
-LOCAL_MODULE := libutils
-LOCAL_SRC_FILES := $(commonSources) BackupData.cpp BackupHelpers.cpp
-include $(BUILD_STATIC_LIBRARY)
-endif
-
 
 # Include subdirectory makefiles
 # ============================================================

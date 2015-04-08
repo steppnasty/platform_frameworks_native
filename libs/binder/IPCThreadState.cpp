@@ -371,11 +371,6 @@ int IPCThreadState::getCallingUid()
     return mCallingUid;
 }
 
-int IPCThreadState::getOrigCallingUid()
-{
-    return mOrigCallingUid;
-}
-
 int64_t IPCThreadState::clearCallingIdentity()
 {
     int64_t token = ((int64_t)mCallingUid<<32) | mCallingPid;
@@ -429,7 +424,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
     mOut.writeInt32(isMain ? BC_ENTER_LOOPER : BC_REGISTER_LOOPER);
     
     // This thread may have been spawned by a thread that was in the background
-    // scheduling group, so first we will make sure it is in the default/foreground
+    // scheduling group, so first we will make sure it is in the foreground
     // one to avoid performing an initial transaction in the background.
     set_sched_policy(mMyThreadId, SP_FOREGROUND);
         
@@ -474,7 +469,7 @@ void IPCThreadState::joinThreadPool(bool isMain)
         }
         
         // After executing the command, ensure that the thread is returned to the
-        // default cgroup before rejoining the pool.  The driver takes care of
+        // foreground cgroup before rejoining the pool.  The driver takes care of
         // restoring the priority, but doesn't do anything with cgroups so we
         // need to take care of that here in userspace.  Note that we do make
         // sure to go in the foreground after executing a transaction, but
@@ -646,7 +641,6 @@ IPCThreadState::IPCThreadState()
 {
     pthread_setspecific(gTLS, this);
     clearCaller();
-    mOrigCallingUid = mCallingUid;
     mIn.setDataCapacity(256);
     mOut.setDataCapacity(256);
 }
@@ -998,8 +992,7 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             
             mCallingPid = tr.sender_pid;
             mCallingUid = tr.sender_euid;
-            mOrigCallingUid = tr.sender_euid;
-  
+            
             int curPrio = getpriority(PRIO_PROCESS, mMyThreadId);
             if (gDisableBackgroundScheduling) {
                 if (curPrio > ANDROID_PRIORITY_NORMAL) {
@@ -1056,7 +1049,6 @@ status_t IPCThreadState::executeCommand(int32_t cmd)
             
             mCallingPid = origPid;
             mCallingUid = origUid;
-            mOrigCallingUid = origUid;
 
             IF_LOG_TRANSACTIONS() {
                 TextOutput::Bundle _b(alog);

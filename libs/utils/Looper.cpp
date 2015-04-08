@@ -316,7 +316,7 @@ Done: ;
             void* data = response.request.data;
 #if DEBUG_POLL_AND_WAKE || DEBUG_CALLBACKS
             ALOGD("%p ~ pollOnce - invoking fd event callback %p: fd=%d, events=0x%x, data=%p",
-                    this, callback, fd, events, data);
+                    this, response.request.callback.get(), fd, events, data);
 #endif
             int callbackResult = response.request.callback->handleEvent(fd, events, data);
             if (callbackResult == 0) {

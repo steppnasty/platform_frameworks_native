@@ -81,7 +81,7 @@ enum {
     SYSTEM_TIME_THREAD = 3,    // high-resolution per-thread clock
     SYSTEM_TIME_BOOTTIME = 4   // same as SYSTEM_TIME_MONOTONIC, but including CPU suspend time
 };
-    
+
 // return the system-time according to the specified clock
 #ifdef __cplusplus
 nsecs_t systemTime(int clock = SYSTEM_TIME_MONOTONIC);

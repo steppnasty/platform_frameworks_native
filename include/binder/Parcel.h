@@ -78,9 +78,6 @@ public:
     // passed in.
     bool                enforceInterface(const String16& interface,
                                          IPCThreadState* threadState = NULL) const;
-#ifdef _INTERNAL_BINDER_PARCEL_
-    bool                enforceInterface(const String16& interface) const;
-#endif
     bool                checkInterface(IBinder*) const;
 
     void                freeData();
@@ -109,6 +106,7 @@ public:
 
     template<typename T>
     status_t            write(const LightFlattenable<T>& val);
+
 
     // Place a native_handle into the parcel (the native_handle's file-
     // descriptors are dup'ed, so it is safe to delete the native_handle

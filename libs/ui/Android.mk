@@ -32,15 +32,9 @@ LOCAL_SHARED_LIBRARIES := \
 	libsync \
 	libutils
 
-ifeq ($(BOARD_USES_HTC_CAMERA),true)
-    LOCAL_SRC_FILES+= OverlayHtc.cpp
-endif
-
 ifneq ($(BOARD_FRAMEBUFFER_FORCE_FORMAT),)
 LOCAL_CFLAGS += -DFRAMEBUFFER_FORCE_FORMAT=$(BOARD_FRAMEBUFFER_FORCE_FORMAT)
 endif
-
-LOCAL_C_INCLUDES:= hardware/qcom/display
 
 LOCAL_MODULE:= libui
 
