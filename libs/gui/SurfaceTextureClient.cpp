@@ -31,8 +31,18 @@
 #include <gui/SurfaceTextureClient.h>
 
 #include <private/gui/ComposerService.h>
+#include <testframework/testframework.h>
 
 namespace android {
+
+#ifdef GFX_TESTFRAMEWORK
+    //holds time stats for dequeue, lock, queue operations on buffers
+    static nsecs_t sDequeueStartTime[BufferQueue::NUM_BUFFER_SLOTS];
+    static nsecs_t sDequeueEndTime[BufferQueue::NUM_BUFFER_SLOTS];
+    static nsecs_t sLockStartTime[BufferQueue::NUM_BUFFER_SLOTS];
+    static nsecs_t sQueueStartTime[BufferQueue::NUM_BUFFER_SLOTS];
+    static nsecs_t sQueueEndTime[BufferQueue::NUM_BUFFER_SLOTS];
+#endif
 
 SurfaceTextureClient::SurfaceTextureClient(
         const sp<ISurfaceTexture>& surfaceTexture)
@@ -80,6 +90,7 @@ void SurfaceTextureClient::init() {
     mReqHeight = 0;
     mReqFormat = 0;
     mReqUsage = 0;
+    mReqSize = 0;
     mTimestamp = NATIVE_WINDOW_TIMESTAMP_AUTO;
     mCrop.clear();
     mScalingMode = NATIVE_WINDOW_SCALING_MODE_FREEZE;
@@ -197,6 +208,10 @@ int SurfaceTextureClient::dequeueBuffer(android_native_buffer_t** buffer,
         int* fenceFd) {
     ATRACE_CALL();
     ALOGV("SurfaceTextureClient::dequeueBuffer");
+#ifdef GFX_TESTFRAMEWORK
+    nsecs_t startTime = systemTime();
+    TF_PRINT(TF_EVENT_START, "STClient", "DQ", "BUFFER:STC dequeue start");
+#endif
     Mutex::Autolock lock(mMutex);
     int buf = -1;
     int reqW = mReqWidth ? mReqWidth : mUserWidth;
@@ -237,6 +252,14 @@ int SurfaceTextureClient::dequeueBuffer(android_native_buffer_t** buffer,
     }
 
     *buffer = gbuf.get();
+#ifdef GFX_TESTFRAMEWORK
+    sDequeueEndTime[buf] = systemTime();
+    sDequeueStartTime[buf] = startTime;
+    TF_PRINT(TF_EVENT_STOP, "STClient", "DQ",
+             "BUFFER:STC dequeue end bufSlot=%d buffer=%p",
+             buf, mSlots[buf].buffer->handle);
+#endif
+
     return OK;
 }
 
@@ -269,6 +292,14 @@ int SurfaceTextureClient::getSlotFromBufferLocked(
 
 int SurfaceTextureClient::lockBuffer_DEPRECATED(android_native_buffer_t* buffer) {
     ALOGV("SurfaceTextureClient::lockBuffer");
+#ifdef GFX_TESTFRAMEWORK
+    int i = getSlotFromBufferLocked(buffer);
+    char eventID[TF_EVENT_ID_SIZE_MAX];
+    snprintf(eventID, TF_EVENT_ID_SIZE_MAX, "Lock-%d", i);
+    TF_PRINT(TF_EVENT, "STClient", eventID, "BUFFER:STC lock, buffer=%p",
+             mSlots[i].buffer->handle);
+    sLockStartTime[i] = systemTime();
+#endif
     Mutex::Autolock lock(mMutex);
     return OK;
 }
@@ -276,6 +307,13 @@ int SurfaceTextureClient::lockBuffer_DEPRECATED(android_native_buffer_t* buffer)
 int SurfaceTextureClient::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
     ATRACE_CALL();
     ALOGV("SurfaceTextureClient::queueBuffer");
+#ifdef GFX_TESTFRAMEWORK
+    char eventID[TF_EVENT_ID_SIZE_MAX];
+    int idx = getSlotFromBufferLocked(buffer);
+    snprintf(eventID, TF_EVENT_ID_SIZE_MAX, "Q-%d", idx);
+    TF_PRINT(TF_EVENT_START, "STClient", eventID, "BUFFER:STC queue start");
+    sQueueStartTime[idx] = systemTime();
+#endif
     Mutex::Autolock lock(mMutex);
     int64_t timestamp;
     if (mTimestamp == NATIVE_WINDOW_TIMESTAMP_AUTO) {
@@ -308,6 +346,23 @@ int SurfaceTextureClient::queueBuffer(android_native_buffer_t* buffer, int fence
             &numPendingBuffers);
 
     mConsumerRunningBehind = (numPendingBuffers >= 2);
+
+#ifdef GFX_TESTFRAMEWORK
+    sQueueEndTime[i] = systemTime();
+    TF_PRINT(TF_EVENT_STOP, "STClient", eventID, "BUFFER:STC queue end, buffer=%p",
+             mSlots[i].buffer->handle);
+    {
+        int dqTime = ns2ms(sDequeueEndTime[i] - sDequeueStartTime[i]);
+        int dqToLock = ns2ms(sLockStartTime[i] - sDequeueEndTime[i]);
+        int qTime = ns2ms(sQueueEndTime[i] - sQueueStartTime[i]);
+        int renderingTime = ns2ms(sQueueStartTime[i] - sLockStartTime[i]);
+        int totalTime = ns2ms(sQueueEndTime[i] - sDequeueStartTime[i]);
+        TF_PRINT(TF_EVENT, "STClient", "GFX-Timelines", "DequeueTime %d LockTime Unk QueueTime %d "
+                 "RenderingTime %d DequeueToLockTime %d TotalTime %d bufSlot %d PID %d TID %d",
+                 dqTime, qTime, renderingTime, dqToLock, totalTime,
+                 i, getpid(), gettid());
+    }
+#endif
 
     return err;
 }
@@ -400,6 +455,12 @@ int SurfaceTextureClient::perform(int operation, va_list args)
     case NATIVE_WINDOW_SET_BUFFERS_FORMAT:
         res = dispatchSetBuffersFormat(args);
         break;
+    case NATIVE_WINDOW_SET_BUFFERS_SIZE:
+        res = dispatchSetBuffersSize(args);
+        break;
+    case NATIVE_WINDOW_UPDATE_BUFFERS_GEOMETRY:
+        res = dispatchUpdateBuffersGeometry(args);
+        break;
     case NATIVE_WINDOW_LOCK:
         res = dispatchLock(args);
         break;
@@ -451,6 +512,7 @@ int SurfaceTextureClient::dispatchSetBuffersGeometry(va_list args) {
     int w = va_arg(args, int);
     int h = va_arg(args, int);
     int f = va_arg(args, int);
+
     int err = setBuffersDimensions(w, h);
     if (err != 0) {
         return err;
@@ -461,6 +523,7 @@ int SurfaceTextureClient::dispatchSetBuffersGeometry(va_list args) {
 int SurfaceTextureClient::dispatchSetBuffersDimensions(va_list args) {
     int w = va_arg(args, int);
     int h = va_arg(args, int);
+
     return setBuffersDimensions(w, h);
 }
 
@@ -473,6 +536,18 @@ int SurfaceTextureClient::dispatchSetBuffersUserDimensions(va_list args) {
 int SurfaceTextureClient::dispatchSetBuffersFormat(va_list args) {
     int f = va_arg(args, int);
     return setBuffersFormat(f);
+}
+
+int SurfaceTextureClient::dispatchSetBuffersSize(va_list args) {
+    int size = va_arg(args, int);
+    return setBuffersSize(size);
+}
+
+int SurfaceTextureClient::dispatchUpdateBuffersGeometry(va_list args) {
+    int w = va_arg(args, int);
+    int h = va_arg(args, int);
+    int f = va_arg(args, int);
+    return updateBuffersGeometry(w, h, f);
 }
 
 int SurfaceTextureClient::dispatchSetScalingMode(va_list args) {
@@ -530,6 +605,7 @@ int SurfaceTextureClient::disconnect(int api) {
         mReqWidth = 0;
         mReqHeight = 0;
         mReqUsage = 0;
+        mReqSize = 0;
         mCrop.clear();
         mScalingMode = NATIVE_WINDOW_SCALING_MODE_FREEZE;
         mTransform = 0;
@@ -628,6 +704,38 @@ int SurfaceTextureClient::setBuffersFormat(int format)
     Mutex::Autolock lock(mMutex);
     mReqFormat = format;
     return NO_ERROR;
+}
+
+int SurfaceTextureClient::setBuffersSize(int size)
+{
+    ATRACE_CALL();
+    ALOGV("SurfaceTextureClient::setBuffersSize");
+
+    if (size<0)
+        return BAD_VALUE;
+
+    Mutex::Autolock lock(mMutex);
+    if(mReqSize != (uint32_t)size) {
+        mReqSize = size;
+        return mSurfaceTexture->setBuffersSize(size);
+    }
+    return NO_ERROR;
+}
+
+int SurfaceTextureClient::updateBuffersGeometry(int w, int h, int f)
+{
+    ATRACE_CALL();
+    ALOGV("SurfaceTextureClient::updateBuffersGeometry");
+
+    if (w<0 || h<0 || f<0)
+        return BAD_VALUE;
+
+    if ((w && !h) || (!w && h))
+        return BAD_VALUE;
+
+    Mutex::Autolock lock(mMutex);
+    status_t err = mSurfaceTexture->updateBuffersGeometry(w, h, f);
+    return err;
 }
 
 int SurfaceTextureClient::setScalingMode(int mode)

@@ -32,6 +32,8 @@
 #include <gui/SurfaceTexture.h>
 #include <utils/Trace.h>
 
+#include <testframework/testframework.h>
+
 // Macros for including the BufferQueue name in log messages
 #define ST_LOGV(x, ...) ALOGV("[%s] "x, mConsumerName.string(), ##__VA_ARGS__)
 #define ST_LOGD(x, ...) ALOGD("[%s] "x, mConsumerName.string(), ##__VA_ARGS__)
@@ -64,6 +66,68 @@ static const char* scalingModeName(int scalingMode) {
     }
 }
 
+/*
+ * Checks if memory needs to be reallocated for this buffer.
+ *
+ * @param: Geometry of the current buffer.
+ * @param: Required Geometry.
+ * @param: Geometry of the updated buffer.
+ *
+ * @return True if a memory reallocation is required.
+ */
+static bool needNewBuffer(const QBufGeometry currentGeometry,
+                   const QBufGeometry requiredGeometry,
+                   const QBufGeometry updatedGeometry)
+{
+    // no allocation required if there is change in resoultion or format.
+    if (updatedGeometry.mWidth && updatedGeometry.mHeight &&
+        updatedGeometry.mFormat) {
+        return false;
+    }
+    // If the current buffer info matches the updated info,
+    // we do not require any memory allocation.
+    if (currentGeometry.mWidth != requiredGeometry.mWidth ||
+        currentGeometry.mHeight != requiredGeometry.mHeight ||
+        currentGeometry.mFormat != requiredGeometry.mFormat) {
+        // Current and required geometry do not match. Allocation
+        // required.
+        return true;
+    }
+    return false;
+}
+
+/*
+ * Geometry update for the currently queued buffer is required or not.
+ *
+ * @param: buffer currently queued buffer.
+ * @param: Updated width
+ * @param: Updated height
+ * @param: Updated format
+ *
+ * @return True if a buffer needs to be updated with new attributes.
+ */
+static bool isBufferGeometryUpdateRequired(sp<GraphicBuffer> buffer,
+                                 const QBufGeometry updatedGeometry)
+{
+    if (buffer == 0) {
+        ALOGW("isBufferGeometryUpdateRequired: graphic buffer is NULL");
+        return false;
+    }
+
+    if (!updatedGeometry.mWidth || !updatedGeometry.mHeight ||
+        !updatedGeometry.mFormat) {
+        // No update required. Return.
+        return false;
+    }
+    if (buffer->width == updatedGeometry.mWidth &&
+        buffer->height == updatedGeometry.mHeight &&
+        buffer->format == updatedGeometry.mFormat) {
+        // The buffer has already been updated. Return.
+        return false;
+    }
+    return true;
+}
+
 BufferQueue::BufferQueue(bool allowSynchronousMode,
         const sp<IGraphicBufferAlloc>& allocator) :
     mDefaultWidth(1),
@@ -94,6 +158,7 @@ BufferQueue::BufferQueue(bool allowSynchronousMode,
     } else {
         mGraphicBufferAlloc = allocator;
     }
+    mNextBufferInfo.set(0, 0, 0);
 }
 
 BufferQueue::~BufferQueue() {
@@ -195,6 +260,13 @@ status_t BufferQueue::setBufferCount(int bufferCount) {
     return OK;
 }
 
+status_t BufferQueue::setBuffersSize(int size) {
+    ST_LOGV("setBuffersSize: size=%d", size);
+    Mutex::Autolock lock(mMutex);
+    mGraphicBufferAlloc->setGraphicBufferSize(size);
+    return NO_ERROR;
+}
+
 int BufferQueue::query(int what, int* outValue)
 {
     ATRACE_CALL();
@@ -264,6 +336,8 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>& outFence,
         ST_LOGE("dequeueBuffer: invalid size: w=%u, h=%u", w, h);
         return BAD_VALUE;
     }
+
+    TF_PRINT(TF_EVENT_START, "BufferQueue", "Dequeue", "BufferQueue dequeue start");
 
     status_t returnFlags(OK);
     EGLDisplay dpy = EGL_NO_DISPLAY;
@@ -378,10 +452,21 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>& outFence,
         mSlots[buf].mBufferState = BufferSlot::DEQUEUED;
 
         const sp<GraphicBuffer>& buffer(mSlots[buf].mGraphicBuffer);
+        QBufGeometry currentGeometry;
+        if (buffer != NULL)
+            currentGeometry.set(buffer->width, buffer->height, buffer->format);
+        else
+            currentGeometry.set(0, 0, 0);
+
+        QBufGeometry requiredGeometry;
+        requiredGeometry.set(w, h, format);
+
+        QBufGeometry updatedGeometry;
+        updatedGeometry.set(mNextBufferInfo.mWidth, mNextBufferInfo.mHeight,
+                            mNextBufferInfo.mFormat);
+
         if ((buffer == NULL) ||
-            (uint32_t(buffer->width)  != w) ||
-            (uint32_t(buffer->height) != h) ||
-            (uint32_t(buffer->format) != format) ||
+            needNewBuffer(currentGeometry, requiredGeometry, updatedGeometry) ||
             ((uint32_t(buffer->usage) & usage) != usage))
         {
             mSlots[buf].mAcquireCalled = false;
@@ -438,10 +523,20 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>& outFence,
         eglDestroySyncKHR(dpy, eglFence);
     }
 
+    TF_PRINT(TF_EVENT_STOP, "BufferQueue", "Dequeue",
+             "BufferQueue dequeue end, slot=%d", *outBuf);
+
     ST_LOGV("dequeueBuffer: returning slot=%d buf=%p flags=%#x", *outBuf,
             mSlots[*outBuf].mGraphicBuffer->handle, returnFlags);
 
     return returnFlags;
+}
+
+status_t BufferQueue::updateBuffersGeometry(int w, int h, int f) {
+    ST_LOGV("updateBuffersGeometry: w=%d h=%d f=%d", w, h, f);
+    Mutex::Autolock lock(mMutex);
+    mNextBufferInfo.set(w, h, f);
+    return NO_ERROR;
 }
 
 status_t BufferQueue::setSynchronousMode(bool enabled) {
@@ -487,6 +582,12 @@ status_t BufferQueue::queueBuffer(int buf,
     int64_t timestamp;
     sp<Fence> fence;
 
+    #ifdef GFX_TESTFRAMEWORK
+    char eventID[TF_EVENT_ID_SIZE_MAX];
+    snprintf(eventID, TF_EVENT_ID_SIZE_MAX, "Queue-%d", buf);
+    TF_PRINT(TF_EVENT_START, "BufferQueue", eventID, "BufferQueue queue start");
+    #endif
+
     input.deflate(&timestamp, &crop, &scalingMode, &transform, &fence);
 
     ST_LOGV("queueBuffer: slot=%d time=%#llx crop=[%d,%d,%d,%d] tr=%#x "
@@ -517,7 +618,27 @@ status_t BufferQueue::queueBuffer(int buf,
             return -EINVAL;
         }
 
+        // Update the buffer Geometry if required
+        QBufGeometry updatedGeometry;
+        updatedGeometry.set(mNextBufferInfo.mWidth,
+                            mNextBufferInfo.mHeight, mNextBufferInfo.mFormat);
         const sp<GraphicBuffer>& graphicBuffer(mSlots[buf].mGraphicBuffer);
+        //  Update the geometry of this buffer without reallocation.
+        if(isBufferGeometryUpdateRequired(graphicBuffer, updatedGeometry)) {
+            status_t res = graphicBuffer->perform(graphicBuffer->handle,
+                                GRALLOC_MODULE_PERFORM_UPDATE_BUFFER_GEOMETRY,
+                                updatedGeometry.mWidth,
+                                updatedGeometry.mHeight,
+                                updatedGeometry.mFormat);
+            if(res == NO_ERROR) {
+                graphicBuffer->width  = updatedGeometry.mWidth;
+                graphicBuffer->height = updatedGeometry.mHeight;
+                graphicBuffer->format = updatedGeometry.mFormat;
+                // set flags to destroy old eglImage and create new eglImage.
+                mSlots[buf].mAcquireCalled = false;
+                mSlots[buf].mEglDisplay = EGL_NO_DISPLAY;
+            }
+        }
         Rect bufferRect(graphicBuffer->getWidth(), graphicBuffer->getHeight());
         Rect croppedCrop;
         crop.intersect(bufferRect, &croppedCrop);
@@ -547,6 +668,8 @@ status_t BufferQueue::queueBuffer(int buf,
                 Fifo::iterator front(mQueue.begin());
                 // buffer currently queued is freed
                 mSlots[*front].mBufferState = BufferSlot::FREE;
+                // reset the frame number of the freed buffer
+                mSlots[*front].mFrameNumber = 0;
                 // and we record the new buffer index in the queued list
                 *front = buf;
             }
@@ -586,6 +709,12 @@ status_t BufferQueue::queueBuffer(int buf,
     if (listener != 0) {
         listener->onFrameAvailable();
     }
+
+    #ifdef GFX_TESTFRAMEWORK
+    TF_PRINT(TF_EVENT_STOP, "BufferQueue", eventID,
+             "BufferQueue Queue end");
+    #endif
+
     return OK;
 }
 
@@ -680,6 +809,7 @@ status_t BufferQueue::disconnect(int api) {
                 if (mConnectedApi == api) {
                     drainQueueAndFreeBuffersLocked();
                     mConnectedApi = NO_CONNECTED_API;
+                    mNextBufferInfo.set(0, 0, 0);
                     mDequeueCondition.broadcast();
                     listener = mConsumerListener;
                 } else {
@@ -826,6 +956,12 @@ status_t BufferQueue::acquireBuffer(BufferItem *buffer) {
         Fifo::iterator front(mQueue.begin());
         int buf = *front;
 
+        #ifdef GFX_TESTFRAMEWORK
+        char eventID[TF_EVENT_ID_SIZE_MAX];
+        snprintf(eventID, TF_EVENT_ID_SIZE_MAX, "Acquire-%d", buf);
+        TF_PRINT(TF_EVENT_START, "BufferQueue", eventID, "BufferQueue acquire start");
+        #endif
+
         ATRACE_BUFFER_INDEX(buf);
 
         if (mSlots[buf].mAcquireCalled) {
@@ -849,6 +985,11 @@ status_t BufferQueue::acquireBuffer(BufferItem *buffer) {
         mQueue.erase(front);
         mDequeueCondition.broadcast();
 
+        #ifdef GFX_TESTFRAMEWORK
+        TF_PRINT(TF_EVENT_STOP, "BufferQueue", eventID,
+                 "BufferQueue acquire end");
+        #endif
+
         ATRACE_INT(mConsumerName.string(), mQueue.size());
     } else {
         return NO_BUFFER_AVAILABLE;
@@ -861,6 +1002,12 @@ status_t BufferQueue::releaseBuffer(int buf, EGLDisplay display,
         EGLSyncKHR eglFence, const sp<Fence>& fence) {
     ATRACE_CALL();
     ATRACE_BUFFER_INDEX(buf);
+
+    #ifdef GFX_TESTFRAMEWORK
+    char eventID[TF_EVENT_ID_SIZE_MAX];
+    snprintf(eventID, TF_EVENT_ID_SIZE_MAX, "Release-%d", buf);
+    TF_PRINT(TF_EVENT_START, "BufferQueue", eventID, "BufferQueue Release start");
+    #endif
 
     Mutex::Autolock _l(mMutex);
 
@@ -885,6 +1032,12 @@ status_t BufferQueue::releaseBuffer(int buf, EGLDisplay display,
     }
 
     mDequeueCondition.broadcast();
+
+    #ifdef GFX_TESTFRAMEWORK
+    TF_PRINT(TF_EVENT_STOP, "BufferQueue", eventID,
+             "BufferQueue Release end");
+    #endif
+
     return OK;
 }
 

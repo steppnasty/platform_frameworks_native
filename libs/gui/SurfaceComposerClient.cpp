@@ -575,13 +575,6 @@ status_t SurfaceComposerClient::getDisplayInfo(
     return ComposerService::getComposerService()->getDisplayInfo(display, info);
 }
 
-// Compatibility shim for legacy Adreno drivers
-status_t SurfaceComposerClient::getDisplayInfo(
-        int32_t displayId, DisplayInfo* info)
-{
-    return getDisplayInfo(getBuiltInDisplay(displayId), info);
-}
-
 void SurfaceComposerClient::blankDisplay(const sp<IBinder>& token) {
     ComposerService::getComposerService()->blank(token);
 }
