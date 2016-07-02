@@ -44,7 +44,9 @@
 
 #include "DisplayHardware/HWComposer.h"
 
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 #define DEBUG_RESIZE    0
 

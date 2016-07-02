@@ -32,7 +32,9 @@
 #include <gui/SurfaceTexture.h>
 #include <utils/Trace.h>
 
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 // Macros for including the BufferQueue name in log messages
 #define ST_LOGV(x, ...) ALOGV("[%s] "x, mConsumerName.string(), ##__VA_ARGS__)
@@ -337,7 +339,9 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>& outFence,
         return BAD_VALUE;
     }
 
+#ifdef GFX_TESTFRAMEWORK
     TF_PRINT(TF_EVENT_START, "BufferQueue", "Dequeue", "BufferQueue dequeue start");
+#endif
 
     status_t returnFlags(OK);
     EGLDisplay dpy = EGL_NO_DISPLAY;
@@ -523,8 +527,10 @@ status_t BufferQueue::dequeueBuffer(int *outBuf, sp<Fence>& outFence,
         eglDestroySyncKHR(dpy, eglFence);
     }
 
+#ifdef GFX_TESTFRAMEWORK
     TF_PRINT(TF_EVENT_STOP, "BufferQueue", "Dequeue",
              "BufferQueue dequeue end, slot=%d", *outBuf);
+#endif
 
     ST_LOGV("dequeueBuffer: returning slot=%d buf=%p flags=%#x", *outBuf,
             mSlots[*outBuf].mGraphicBuffer->handle, returnFlags);

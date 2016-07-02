@@ -31,7 +31,9 @@
 #include <gui/SurfaceTextureClient.h>
 
 #include <private/gui/ComposerService.h>
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 namespace android {
 

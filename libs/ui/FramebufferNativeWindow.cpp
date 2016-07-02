@@ -37,7 +37,9 @@
 #include <hardware/hardware.h>
 #include <hardware/gralloc.h>
 
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 // ----------------------------------------------------------------------------
 namespace android {

@@ -28,7 +28,9 @@
 #include <utils/Errors.h>
 #include <utils/String8.h>
 #include <utils/Trace.h>
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 #include "EventThread.h"
 #include "SurfaceFlinger.h"
@@ -147,7 +149,9 @@ bool EventThread::threadLoop() {
     Vector< sp<EventThread::Connection> > signalConnections;
     signalConnections = waitForEvent(&event);
 
+#ifdef GFX_TESTFRAMEWORK
     TF_PRINT(TF_EVENT_START, "SF", "Vsync", " Vsync Dispatch Start");
+#endif
     // dispatch events to listeners...
     const size_t count = signalConnections.size();
     for (size_t i=0 ; i<count ; i++) {
@@ -169,7 +173,9 @@ bool EventThread::threadLoop() {
             removeDisplayEventConnection(signalConnections[i]);
         }
     }
+#ifdef GFX_TESTFRAMEWORK
     TF_PRINT(TF_EVENT_STOP, "SF", "Vsync", " Vsync Dispatch end");
+#endif
     return true;
 }
 

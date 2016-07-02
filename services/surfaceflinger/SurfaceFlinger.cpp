@@ -68,7 +68,9 @@
 #include "DisplayHardware/GraphicBufferAlloc.h"
 #include "DisplayHardware/HWComposer.h"
 
+#ifdef GFX_TESTFRAMEWORK
 #include <testframework/testframework.h>
+#endif
 
 #define EGL_VERSION_HW_ANDROID  0x3143
 
@@ -766,16 +768,24 @@ void SurfaceFlinger::onMessageReceived(int32_t what) {
     ATRACE_CALL();
     switch (what) {
     case MessageQueue::INVALIDATE:
+#ifdef GFX_TESTFRAMEWORK
         TF_PRINT(TF_EVENT_START, "SF", "Invalidate", "Composition invalidate start");
+#endif
         handleMessageTransaction();
         handleMessageInvalidate();
         signalRefresh();
+#ifdef GFX_TESTFRAMEWORK
         TF_PRINT(TF_EVENT_STOP, "SF", "Invalidate", "Composition invalidate end");
+#endif
         break;
     case MessageQueue::REFRESH:
+#ifdef GFX_TESTFRAMEWORK
         TF_PRINT(TF_EVENT_START, "SF", "CompositionRefresh", "Composition refresh start");
+#endif
         handleMessageRefresh();
+#ifdef GFX_TESTFRAMEWORK
         TF_PRINT(TF_EVENT_STOP, "SF", "CompositionRefresh", "Composition refresh end");
+#endif
         break;
     }
 }
